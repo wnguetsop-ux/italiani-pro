@@ -1,240 +1,187 @@
 'use client'
 import { useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import { Eye, EyeOff, Shield, CheckCircle, ArrowRight, AlertTriangle } from 'lucide-react'
-import { registerUser } from '@/lib/auth'
+import { Eye, EyeOff, Check } from 'lucide-react'
+import { register } from '@/lib/auth'
 import { toast } from 'sonner'
 
-const COUNTRIES = [
-  { code:'CM', label:'🇨🇲 Cameroun' }, { code:'SN', label:'🇸🇳 Sénégal' },
-  { code:'CI', label:"🇨🇮 Côte d'Ivoire" }, { code:'ML', label:'🇲🇱 Mali' },
-  { code:'GN', label:'🇬🇳 Guinée' }, { code:'BJ', label:'🇧🇯 Bénin' },
-  { code:'TG', label:'🇹🇬 Togo' }, { code:'GA', label:'🇬🇦 Gabon' },
-  { code:'CD', label:'🇨🇩 Congo RDC' }, { code:'CG', label:'🇨🇬 Congo Brazza' },
-  { code:'NG', label:'🇳🇬 Nigeria' }, { code:'GH', label:'🇬🇭 Ghana' },
-  { code:'OTHER', label:'🌍 Autre pays' },
+const PAYS = [
+  'Cameroun','Sénégal',"Côte d'Ivoire",'Mali','Guinée','Bénin','Togo','Gabon',
+  'Congo RDC','Congo Brazza','Nigeria','Ghana','Burkina Faso','Autre'
 ]
 
 export default function RegisterPage() {
-  const router = useRouter()
-  const [step, setStep]       = useState(1)
-  const [show, setShow]       = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [consents, setConsents] = useState({ cgu: false, rgpd: false, disclaimer: false })
-  const [form, setForm] = useState({
-    full_name: '', email: '', password: '', phone: '',
-    country: 'CM', profession: '', target_sector: '', role: 'candidate',
+  const [step, setStep]         = useState(1)
+  const [loading, setLoading]   = useState(false)
+  const [show, setShow]         = useState(false)
+  const [agreed, setAgreed]     = useState(false)
+  const [form, setForm]         = useState({
+    full_name: '', email: '', password: '', phone: '', country: 'Cameroun'
   })
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (step < 3) { setStep(s => s + 1); return }
-    setLoading(true)
-    try {
-      const { role } = await registerUser(form)
-      toast.success('Compte créé avec succès ! Bienvenue 🎉')
-      router.push('/dashboard')
-    } catch (err: any) {
-      const msg = err.code === 'auth/email-already-in-use'
-        ? 'Cet email est déjà utilisé. Connectez-vous.'
-        : err.code === 'auth/weak-password'
-        ? 'Mot de passe trop faible (minimum 6 caractères).'
-        : 'Erreur lors de la création du compte.'
-      toast.error(msg)
-    } finally {
-      setLoading(false)
-    }
+  function set(k: keyof typeof form) {
+    return (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+      setForm(f => ({ ...f, [k]: e.target.value }))
   }
 
-  const allConsents = Object.values(consents).every(Boolean)
+  async function submit(e: React.FormEvent) {
+    e.preventDefault()
+    if (step === 1) {
+      if (!form.full_name.trim()) { toast.error('Veuillez entrer votre nom complet'); return }
+      if (!form.email.includes('@')) { toast.error('Email invalide'); return }
+      if (form.password.length < 6) { toast.error('Mot de passe trop court (6 caractères min.)'); return }
+      setStep(2)
+      return
+    }
+    if (step === 2) {
+      setStep(3)
+      return
+    }
+    if (!agreed) { toast.error('Veuillez accepter les conditions'); return }
+    setLoading(true)
+    try {
+      await register({ email: form.email, password: form.password, full_name: form.full_name, phone: form.phone, country: form.country })
+      toast.success('Compte créé ! Bienvenue 🎉')
+      window.location.href = '/dashboard'
+    } catch (err: any) {
+      const msg = err.code === 'auth/email-already-in-use' ? 'Cet email est déjà utilisé. Connectez-vous.' : 'Erreur lors de la création du compte.'
+      toast.error(msg)
+    } finally { setLoading(false) }
+  }
+
+  const steps = ['Compte', 'Coordonnées', 'Confirmation']
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
-      {/* Left panel */}
-      <div className="hidden lg:flex lg:w-5/12 bg-gradient-to-br from-navy-950 to-navy-800 flex-col justify-between p-12 relative overflow-hidden">
-        <div className="absolute top-20 right-0 w-56 h-56 bg-gold-400/10 rounded-full blur-3xl" />
-        <div className="relative z-10">
-          <Link href="/" className="flex items-center gap-2">
-            <div className="w-10 h-10 rounded-xl bg-gold-500/20 border border-gold-500/30 flex items-center justify-center">
-              <span className="text-gold-400 font-bold">IP</span>
+    <div style={{ minHeight:'100vh', background:'#F8F9FC', display:'flex', alignItems:'center', justifyContent:'center', padding:'16px' }}>
+      <div style={{ width:'100%', maxWidth:'420px' }}>
+
+        {/* Logo */}
+        <div style={{ textAlign:'center', marginBottom:'28px' }}>
+          <Link href="/" style={{ textDecoration:'none', display:'inline-flex', alignItems:'center', gap:'10px' }}>
+            <div style={{ width:'40px', height:'40px', background:'#1B3A6B', borderRadius:'11px', display:'flex', alignItems:'center', justifyContent:'center' }}>
+              <span style={{ color:'#D4A017', fontWeight:'900', fontSize:'14px' }}>IP</span>
             </div>
-            <span className="text-white font-bold text-xl">Italiani<span className="text-gold-400">Pro</span></span>
+            <span style={{ fontSize:'20px', fontWeight:'800', color:'#111827' }}>
+              Italiani<span style={{ color:'#D4A017' }}>Pro</span>
+            </span>
           </Link>
         </div>
-        <div className="relative z-10 space-y-3">
-          {['Dossier sécurisé & confidentiel','Paiement Mobile Money (MTN, Orange)','Accompagnement FR & EN','Suivi en temps réel','Preuves horodatées de travail effectué'].map((f,i) => (
-            <div key={i} className="flex items-center gap-2.5 text-sm text-gray-200">
-              <CheckCircle size={14} className="text-gold-400 shrink-0" /> {f}
+
+        {/* Steps */}
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:'0', marginBottom:'24px' }}>
+          {steps.map((s, i) => (
+            <div key={i} style={{ display:'flex', alignItems:'center' }}>
+              <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:'4px' }}>
+                <div style={{
+                  width:'30px', height:'30px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center',
+                  fontWeight:'700', fontSize:'13px', transition:'all 0.2s',
+                  background: step > i+1 ? '#1B3A6B' : step === i+1 ? '#1B3A6B' : '#E9ECF0',
+                  color: step >= i+1 ? 'white' : '#9CA3AF',
+                }}>
+                  {step > i+1 ? <Check size={14} /> : i+1}
+                </div>
+                <span style={{ fontSize:'11px', fontWeight:'500', color: step === i+1 ? '#1B3A6B' : '#9CA3AF' }}>{s}</span>
+              </div>
+              {i < steps.length-1 && (
+                <div style={{ width:'40px', height:'2px', background: step > i+1 ? '#1B3A6B' : '#E9ECF0', margin:'0 4px', marginBottom:'16px', transition:'background 0.2s' }} />
+              )}
             </div>
           ))}
-          <div className="mt-4 bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 text-xs text-amber-200 leading-relaxed">
-            <AlertTriangle className="inline w-3 h-3 mr-1 mb-0.5" />
-            ItalianiPro n'est pas une agence d'emploi ni de visa. Accompagnement documentaire uniquement.
-          </div>
         </div>
-        <div className="relative z-10 text-xs text-gray-600">© {new Date().getFullYear()} ItalianiPro</div>
-      </div>
 
-      {/* Form */}
-      <div className="flex-1 flex items-center justify-center p-6 overflow-y-auto">
-        <div className="w-full max-w-md py-8">
-          {/* Step indicator */}
-          <div className="flex items-center justify-center gap-0 mb-8">
-            {['Compte','Profil','Consentement'].map((label, i) => (
-              <div key={i} className="flex items-center">
-                <div className="flex flex-col items-center">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
-                    step > i+1 ? 'bg-green-500 text-white' : step === i+1 ? 'bg-navy-800 text-white' : 'bg-gray-200 text-gray-500'
-                  }`}>
-                    {step > i+1 ? <CheckCircle size={14} /> : i+1}
-                  </div>
-                  <div className={`text-[10px] mt-1 font-medium ${step === i+1 ? 'text-navy-800' : 'text-gray-400'}`}>{label}</div>
-                </div>
-                {i < 2 && <div className={`w-16 h-px mx-2 mb-4 transition-all ${step > i+1 ? 'bg-green-400' : 'bg-gray-200'}`} />}
+        <div className="card" style={{ padding:'28px' }}>
+          <form onSubmit={submit} style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
+
+            {/* Step 1 */}
+            {step === 1 && <>
+              <div>
+                <h2 style={{ fontSize:'17px', fontWeight:'700', marginBottom:'4px' }}>Créer mon compte</h2>
+                <p style={{ fontSize:'13px', color:'#6B7280' }}>Vos identifiants de connexion</p>
               </div>
-            ))}
-          </div>
-
-          <div className="bg-white rounded-2xl shadow-card-lg p-8 border border-gray-100">
-            <div className="mb-6">
-              <h1 className="text-2xl font-bold text-navy-900">
-                {step===1?'Créer mon compte':step===2?'Mon profil':'Consentements'}
-              </h1>
-              <p className="text-gray-500 text-sm mt-1">Étape {step}/3</p>
-            </div>
-
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {step === 1 && (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Nom complet *</label>
-                    <input type="text" required value={form.full_name}
-                      onChange={e => setForm(f=>({...f,full_name:e.target.value}))}
-                      placeholder="Ex: Marie Tchouaffe"
-                      className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-navy-500 transition" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">E-mail *</label>
-                    <input type="email" required value={form.email}
-                      onChange={e => setForm(f=>({...f,email:e.target.value}))}
-                      placeholder="vous@exemple.com"
-                      className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-navy-500 transition" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Téléphone WhatsApp</label>
-                    <input type="tel" value={form.phone}
-                      onChange={e => setForm(f=>({...f,phone:e.target.value}))}
-                      placeholder="+237 6XX XXX XXX"
-                      className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-navy-500 transition" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Mot de passe *</label>
-                    <div className="relative">
-                      <input type={show?'text':'password'} required value={form.password}
-                        onChange={e => setForm(f=>({...f,password:e.target.value}))}
-                        placeholder="Minimum 6 caractères"
-                        className="w-full border border-gray-200 rounded-xl px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-navy-500 transition" />
-                      <button type="button" onClick={()=>setShow(s=>!s)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
-                        {show?<EyeOff size={16}/>:<Eye size={16}/>}
-                      </button>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Je m'inscris en tant que *</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {[{v:'candidate',l:'👤 Candidat'},{v:'sponsor',l:'💳 Sponsor / Proche'}].map(r=>(
-                        <button key={r.v} type="button" onClick={()=>setForm(f=>({...f,role:r.v}))}
-                          className={`border rounded-xl py-3 text-sm font-medium transition ${form.role===r.v?'border-navy-700 bg-navy-50 text-navy-800':'border-gray-200 text-gray-500 hover:bg-gray-50'}`}>
-                          {r.l}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </>
-              )}
-
-              {step === 2 && (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Pays de résidence *</label>
-                    <select value={form.country} onChange={e=>setForm(f=>({...f,country:e.target.value}))}
-                      className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-navy-500 bg-white transition">
-                      {COUNTRIES.map(c=><option key={c.code} value={c.code}>{c.label}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Profession actuelle</label>
-                    <input type="text" value={form.profession}
-                      onChange={e=>setForm(f=>({...f,profession:e.target.value}))}
-                      placeholder="Ex: Infirmier, Maçon, Agriculteur..."
-                      className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-navy-500 transition" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Secteur ciblé en Italie</label>
-                    <select value={form.target_sector} onChange={e=>setForm(f=>({...f,target_sector:e.target.value}))}
-                      className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-navy-500 bg-white transition">
-                      <option value="">— Choisir —</option>
-                      <option value="agriculture">🌾 Agriculture / Saisonniers</option>
-                      <option value="tourism">🏨 Tourisme / Hôtellerie</option>
-                      <option value="construction">🏗️ Construction / BTP</option>
-                      <option value="care">🏥 Aide à domicile / Soins</option>
-                      <option value="other">🔧 Autre secteur</option>
-                    </select>
-                  </div>
-                </>
-              )}
-
-              {step === 3 && (
-                <div className="space-y-4">
-                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-xs text-amber-800 leading-relaxed">
-                    <strong>⚠️ Clause obligatoire à lire</strong><br /><br />
-                    ItalianiPro est une plateforme d'accompagnement documentaire.<br />
-                    Elle ne garantit pas et n'obtient pas :<br />
-                    • d'emploi en Italie<br />
-                    • de visa de travail<br />
-                    • de nulla osta (autorisation de travail)<br /><br />
-                    La demande officielle est faite par l'employeur via le Sportello Unico.
-                  </div>
-                  {[
-                    { key:'disclaimer', label:"Je comprends qu'ItalianiPro ne garantit ni emploi, ni visa, ni nulla osta. Je m'inscris pour un accompagnement documentaire uniquement. *" },
-                    { key:'cgu',        label:<>J'accepte les <Link href="/legal/cgu" className="text-navy-600 underline" target="_blank">CGU</Link> de la plateforme. *</> },
-                    { key:'rgpd',       label:<>J'accepte la <Link href="/legal/privacy" className="text-navy-600 underline" target="_blank">Politique de confidentialité</Link>. *</> },
-                  ].map(c=>(
-                    <label key={c.key} className="flex items-start gap-3 cursor-pointer">
-                      <input type="checkbox" checked={consents[c.key as keyof typeof consents]}
-                        onChange={e=>setConsents(v=>({...v,[c.key]:e.target.checked}))}
-                        className="mt-0.5 w-4 h-4 accent-navy-700 shrink-0" />
-                      <span className="text-xs text-gray-600 leading-relaxed">{c.label}</span>
-                    </label>
-                  ))}
-                </div>
-              )}
-
-              <div className="flex gap-3 pt-2">
-                {step > 1 && (
-                  <button type="button" onClick={()=>setStep(s=>s-1)}
-                    className="flex-1 border border-gray-200 text-gray-600 py-3 rounded-xl font-medium text-sm hover:bg-gray-50 transition">
-                    ← Retour
+              <div>
+                <label className="field-label">Nom complet *</label>
+                <input type="text" value={form.full_name} onChange={set('full_name')} placeholder="Ex: Marie Tchouaffe" autoFocus />
+              </div>
+              <div>
+                <label className="field-label">Adresse e-mail *</label>
+                <input type="email" value={form.email} onChange={set('email')} placeholder="vous@email.com" autoComplete="email" />
+              </div>
+              <div>
+                <label className="field-label">Mot de passe * (6 caractères minimum)</label>
+                <div style={{ position:'relative' }}>
+                  <input type={show?'text':'password'} value={form.password} onChange={set('password')} placeholder="••••••••" style={{ paddingRight:'44px' }} autoComplete="new-password" />
+                  <button type="button" onClick={()=>setShow(s=>!s)} style={{ position:'absolute', right:'12px', top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:'#6B7280', padding:'4px' }}>
+                    {show ? <EyeOff size={17}/> : <Eye size={17}/>}
                   </button>
-                )}
-                <button type="submit" disabled={loading||(step===3&&!allConsents)}
-                  className="flex-1 bg-navy-800 hover:bg-navy-700 disabled:opacity-50 text-white py-3 rounded-xl font-semibold text-sm transition flex items-center justify-center gap-2">
-                  {loading
-                    ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    : step < 3 ? <>Continuer <ArrowRight size={16}/></> : <>Créer mon espace <CheckCircle size={16}/></>
-                  }
-                </button>
+                </div>
               </div>
-            </form>
+            </>}
 
-            <div className="mt-5 pt-4 border-t border-gray-100 text-center text-sm text-gray-500">
-              Déjà inscrit ?{' '}
-              <Link href="/login" className="text-navy-700 font-semibold hover:text-navy-900">Se connecter</Link>
+            {/* Step 2 */}
+            {step === 2 && <>
+              <div>
+                <h2 style={{ fontSize:'17px', fontWeight:'700', marginBottom:'4px' }}>Vos coordonnées</h2>
+                <p style={{ fontSize:'13px', color:'#6B7280' }}>Pour mieux vous accompagner</p>
+              </div>
+              <div>
+                <label className="field-label">Téléphone / WhatsApp</label>
+                <input type="tel" value={form.phone} onChange={set('phone')} placeholder="+237 6XX XXX XXX" />
+              </div>
+              <div>
+                <label className="field-label">Pays de résidence</label>
+                <select value={form.country} onChange={set('country')}>
+                  {PAYS.map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </div>
+              <p style={{ fontSize:'12px', color:'#9CA3AF' }}>
+                Vous pourrez compléter votre profil professionnel après votre inscription.
+              </p>
+            </>}
+
+            {/* Step 3 */}
+            {step === 3 && <>
+              <div>
+                <h2 style={{ fontSize:'17px', fontWeight:'700', marginBottom:'4px' }}>Confirmation</h2>
+                <p style={{ fontSize:'13px', color:'#6B7280' }}>Lisez et acceptez les conditions</p>
+              </div>
+              <div className="alert alert-warning">
+                <div>
+                  <strong>⚠️ Important à lire</strong><br />
+                  ItalianiPro est une plateforme d'<strong>accompagnement documentaire uniquement</strong>.
+                  Nous ne garantissons pas et n'obtenons pas d'emploi, de visa, ni de nulla osta.
+                  La décision appartient à l'employeur et aux autorités italiennes.
+                </div>
+              </div>
+              <label style={{ display:'flex', alignItems:'flex-start', gap:'10px', cursor:'pointer', fontSize:'13px', color:'#374151', lineHeight:'1.5' }}>
+                <input
+                  type="checkbox"
+                  checked={agreed}
+                  onChange={e => setAgreed(e.target.checked)}
+                  style={{ width:'auto', marginTop:'2px', flexShrink:0, cursor:'pointer' }}
+                />
+                <span>
+                  Je comprends qu'ItalianiPro offre un accompagnement documentaire uniquement, sans garantie de résultat.
+                  J'accepte les <Link href="/cgu" style={{ color:'#1B3A6B' }}>CGU</Link> et la <Link href="/confidentialite" style={{ color:'#1B3A6B' }}>politique de confidentialité</Link>. *
+                </span>
+              </label>
+            </>}
+
+            <div style={{ display:'flex', gap:'10px', marginTop:'4px' }}>
+              {step > 1 && (
+                <button type="button" className="btn btn-secondary" onClick={() => setStep(s => s-1)} style={{ flex:1 }}>
+                  ← Retour
+                </button>
+              )}
+              <button type="submit" className="btn btn-primary" disabled={loading || (step===3 && !agreed)} style={{ flex: step>1?1:undefined, width: step===1?'100%':undefined }}>
+                {loading ? <><span className="spinner spinner-white" /> Création...</> :
+                 step < 3 ? 'Continuer →' : 'Créer mon compte'}
+              </button>
             </div>
-            <div className="mt-3 flex items-center gap-2 text-[10px] text-gray-400 justify-center">
-              <Shield size={11} /> Données chiffrées Firebase — Stockage sécurisé
-            </div>
+          </form>
+
+          <div style={{ textAlign:'center', marginTop:'20px', paddingTop:'20px', borderTop:'1px solid #F0F2F5', fontSize:'14px', color:'#6B7280' }}>
+            Déjà inscrit ?{' '}
+            <Link href="/login" style={{ color:'#1B3A6B', fontWeight:'600', textDecoration:'none' }}>Se connecter</Link>
           </div>
         </div>
       </div>

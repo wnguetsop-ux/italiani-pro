@@ -1,40 +1,34 @@
-import type { Metadata } from 'next'
-import { Toaster } from 'sonner'
+import type { Metadata, Viewport } from 'next'
+import Script from 'next/script'
 import '../styles/globals.css'
+import { Toaster } from 'sonner'
 
 export const metadata: Metadata = {
-  title: {
-    default: 'ItalianiPro — Accompagnement candidature Italie',
-    template: '%s | ItalianiPro',
-  },
-  description:
-    'Plateforme premium d\'accompagnement documentaire et de préparation de candidature pour travailler en Italie. Préparez votre dossier, organisez vos documents, suivez votre parcours.',
-  keywords: ['italie', 'travail italie', 'flussi', 'candidature italie', 'cameroun', 'afrique francophone'],
-  openGraph: {
-    title: 'ItalianiPro',
-    description: 'Votre partenaire de confiance pour la préparation de candidature vers l\'Italie.',
-    type: 'website',
-    locale: 'fr_FR',
-  },
+  title: { default: 'ItalianiPro', template: '%s | ItalianiPro' },
+  description: "Préparez votre candidature pour travailler en Italie. Accompagnement documentaire professionnel.",
+  manifest: '/manifest.json',
+  appleWebApp: { capable: true, title: 'ItalianiPro', statusBarStyle: 'default' },
+}
+export const viewport: Viewport = {
+  width: 'device-width', initialScale: 1, maximumScale: 1,
+  themeColor: '#1B3A6B',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="fr" suppressHydrationWarning>
+    <html lang="fr">
       <head>
-        <link rel="icon" href="/favicon.ico" />
-        <meta name="theme-color" content="#0f2454" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <link rel="apple-touch-icon" href="/icon-192.png" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
       </head>
-      <body className="antialiased">
+      <body>
         {children}
-        <Toaster
-          position="top-right"
-          richColors
-          toastOptions={{
-            style: { fontFamily: 'var(--font-sora)' },
-          }}
-        />
+        <Toaster position="top-center" richColors />
+        <Script id="sw" strategy="afterInteractive">{`
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js').catch(() => {})
+          }
+        `}</Script>
       </body>
     </html>
   )

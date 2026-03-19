@@ -1,56 +1,36 @@
-// ============================================================
-// ITALIANIPRO — Middleware (Auth Guard) — Firebase
-// ============================================================
 import { NextResponse, type NextRequest } from 'next/server'
 
-const PUBLIC_PATHS = [
-  '/',
-  '/login',
-  '/register',
-  '/reset-password',
-  '/legal',
-  '/api/payments/webhook',
-  '/api/ai',
-]
+const PUBLIC = ['/', '/login', '/register', '/api/auth', '/api/webhook']
+const ADMIN_ROLES = ['admin', 'super_admin', 'agent']
 
-const ADMIN_ROLES = ['admin', 'super_admin', 'agent', 'coach']
-
-export function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl
-
-  // Routes publiques → passer directement
-  const isPublic = PUBLIC_PATHS.some(p =>
-    pathname === p || pathname.startsWith(p + '/')
-  )
+export function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl
+  const isPublic = PUBLIC.some(p => pathname === p || pathname.startsWith(p + '/'))
   if (isPublic) return NextResponse.next()
 
-  // Lire le cookie firebase-token (écrit par auth.ts après login)
-  const token = request.cookies.get('firebase-token')?.value
-  const role  = request.cookies.get('firebase-role')?.value ?? 'candidate'
+  const token = req.cookies.get('ip_token')?.value
+  const role  = req.cookies.get('ip_role')?.value ?? 'candidat'
 
-  // Pas connecté → rediriger vers login
+  // Pas connecté → login
   if (!token) {
-    const loginUrl = new URL('/login', request.url)
-    loginUrl.searchParams.set('redirect', pathname)
-    return NextResponse.redirect(loginUrl)
+    const url = new URL('/login', req.url)
+    url.searchParams.set('redirect', pathname)
+    return NextResponse.redirect(url)
   }
 
-  // Déjà connecté + page login/register → rediriger vers dashboard
+  // Déjà connecté → rediriger depuis login/register
   if (token && (pathname === '/login' || pathname === '/register')) {
-    const dest = ADMIN_ROLES.includes(role) ? '/admin/dashboard' : '/dashboard'
-    return NextResponse.redirect(new URL(dest, request.url))
+    return NextResponse.redirect(new URL(ADMIN_ROLES.includes(role) ? '/admin' : '/dashboard', req.url))
   }
 
   // Route admin → vérifier le rôle
-  if (pathname.startsWith('/admin')) {
-    if (!ADMIN_ROLES.includes(role)) {
-      return NextResponse.redirect(new URL('/dashboard', request.url))
-    }
+  if (pathname.startsWith('/admin') && !ADMIN_ROLES.includes(role)) {
+    return NextResponse.redirect(new URL('/dashboard', req.url))
   }
 
   return NextResponse.next()
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|public).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|icon-|sw.js|manifest.json).*)'],
 }

@@ -1,130 +1,65 @@
 import { type ClassValue, clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
-import { format, formatDistanceToNow, differenceInDays } from 'date-fns'
-import { fr, enUS } from 'date-fns/locale'
 
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs))
+export function cn(...i: ClassValue[]) { return twMerge(clsx(i)) }
+
+export function fmt_date(d: any): string {
+  if (!d) return '—'
+  const date = d?.toDate ? d.toDate() : new Date(d)
+  return date.toLocaleDateString('fr-FR', { day:'2-digit', month:'short', year:'numeric' })
 }
 
-export function formatCFA(amount: number): string {
-  return new Intl.NumberFormat('fr-FR', {
-    style: 'currency',
-    currency: 'XAF',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(amount)
+export function fmt_time(d: any): string {
+  if (!d) return ''
+  const date = d?.toDate ? d.toDate() : new Date(d)
+  return date.toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit' })
 }
 
-export function formatDate(date: string | Date, locale: 'fr' | 'en' = 'fr'): string {
-  const d = typeof date === 'string' ? new Date(date) : date
-  return format(d, 'dd MMM yyyy', { locale: locale === 'fr' ? fr : enUS })
+export function fmt_xaf(n: number): string {
+  return new Intl.NumberFormat('fr-FR', { style:'currency', currency:'XAF', minimumFractionDigits:0 }).format(n)
 }
 
-export function formatRelative(date: string | Date, locale: 'fr' | 'en' = 'fr'): string {
-  const d = typeof date === 'string' ? new Date(date) : date
-  return formatDistanceToNow(d, { addSuffix: true, locale: locale === 'fr' ? fr : enUS })
+export function fmt_size(bytes: number): string {
+  if (bytes < 1024) return `${bytes} o`
+  if (bytes < 1048576) return `${(bytes/1024).toFixed(0)} Ko`
+  return `${(bytes/1048576).toFixed(1)} Mo`
 }
 
-export function daysUntil(date: string | Date): number {
-  const d = typeof date === 'string' ? new Date(date) : date
-  return differenceInDays(d, new Date())
-}
-
-export function getStatusColor(status: string): string {
-  const map: Record<string, string> = {
-    draft:           'bg-gray-100 text-gray-600',
-    submitted:       'bg-blue-100 text-blue-700',
-    incomplete:      'bg-red-100 text-red-700',
-    in_review:       'bg-blue-100 text-blue-700',
-    pending_payment: 'bg-orange-100 text-orange-700',
-    in_progress:     'bg-indigo-100 text-indigo-700',
-    awaiting_client: 'bg-yellow-100 text-yellow-700',
-    ready:           'bg-green-100 text-green-700',
-    suspended:       'bg-red-100 text-red-700',
-    archived:        'bg-gray-100 text-gray-500',
-    completed:       'bg-emerald-100 text-emerald-700',
-    pending:         'bg-yellow-100 text-yellow-700',
-    uploaded:        'bg-blue-100 text-blue-700',
-    approved:        'bg-green-100 text-green-700',
-    rejected:        'bg-red-100 text-red-700',
-    expired:         'bg-red-100 text-red-600',
-    paid:            'bg-green-100 text-green-700',
-    failed:          'bg-red-100 text-red-700',
-    scheduled:       'bg-blue-100 text-blue-700',
-    confirmed:       'bg-indigo-100 text-indigo-700',
-    cancelled:       'bg-red-100 text-red-600',
-    open:            'bg-blue-100 text-blue-700',
-    resolved:        'bg-green-100 text-green-700',
-  }
-  return map[status] ?? 'bg-gray-100 text-gray-600'
-}
-
-export function getStatusLabel(status: string, lang: 'fr' | 'en' = 'fr'): string {
-  const fr_labels: Record<string, string> = {
-    draft:           'Brouillon',
-    submitted:       'Soumis',
-    incomplete:      'Incomplet',
-    in_review:       'En vérification',
-    pending_payment: 'En attente paiement',
-    in_progress:     'En cours',
-    awaiting_client: 'En attente client',
-    ready:           'Prêt',
-    suspended:       'Suspendu',
-    archived:        'Archivé',
-    completed:       'Terminé',
-    pending:         'En attente',
-    uploaded:        'Uploadé',
-    approved:        'Validé',
-    rejected:        'Rejeté',
-    expired:         'Expiré',
-    paid:            'Payé',
-    failed:          'Échoué',
-    scheduled:       'Planifié',
-    confirmed:       'Confirmé',
-    cancelled:       'Annulé',
-    open:            'Ouvert',
-    resolved:        'Résolu',
-  }
-  const en_labels: Record<string, string> = {
-    draft:           'Draft',
-    submitted:       'Submitted',
-    incomplete:      'Incomplete',
-    in_review:       'Under Review',
-    pending_payment: 'Awaiting Payment',
-    in_progress:     'In Progress',
-    awaiting_client: 'Awaiting Client',
-    ready:           'Ready',
-    suspended:       'Suspended',
-    archived:        'Archived',
-    completed:       'Completed',
-    pending:         'Pending',
-    uploaded:        'Uploaded',
-    approved:        'Approved',
-    rejected:        'Rejected',
-    expired:         'Expired',
-    paid:            'Paid',
-    failed:          'Failed',
-    scheduled:       'Scheduled',
-    confirmed:       'Confirmed',
-    cancelled:       'Cancelled',
-    open:            'Open',
-    resolved:        'Resolved',
-  }
-  const labels = lang === 'fr' ? fr_labels : en_labels
-  return labels[status] ?? status
-}
-
-export function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-export function getInitials(name: string): string {
+export function initiales(name: string): string {
   return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
 }
 
-export function truncate(text: string, max: number): string {
-  return text.length > max ? text.slice(0, max) + '...' : text
+export function days_until(dateStr: string): number {
+  return Math.max(0, Math.ceil((new Date(dateStr).getTime() - Date.now()) / 86400000))
+}
+
+export function relative_time(d: any): string {
+  if (!d) return ''
+  const date = d?.toDate ? d.toDate() : new Date(d)
+  const diff  = (Date.now() - date.getTime()) / 1000
+  if (diff < 60) return 'à l\'instant'
+  if (diff < 3600) return `il y a ${Math.floor(diff/60)} min`
+  if (diff < 86400) return `il y a ${Math.floor(diff/3600)} h`
+  if (diff < 604800) return `il y a ${Math.floor(diff/86400)} j`
+  return fmt_date(date)
+}
+
+export const STATUT_LABEL: Record<string, string> = {
+  nouveau: 'Nouveau', incomplet: 'Incomplet', en_cours: 'En cours',
+  en_verification: 'En vérification', attente_paiement: 'Attente paiement',
+  attente_client: 'Attente client', pret: 'Prêt', termine: 'Terminé',
+  suspendu: 'Suspendu',
+}
+export const STATUT_BADGE: Record<string, string> = {
+  nouveau: 'badge-draft', incomplet: 'badge-pending', en_cours: 'badge-progress',
+  en_verification: 'badge-review', attente_paiement: 'badge-pending',
+  attente_client: 'badge-pending', pret: 'badge-ready', termine: 'badge-done',
+  suspendu: 'badge-rejected',
+}
+export const DOC_STATUT_BADGE: Record<string, string> = {
+  uploade: 'badge-uploaded', approuve: 'badge-approved', rejete: 'badge-rejected',
+  en_verification: 'badge-review',
+}
+export const DOC_STATUT_LABEL: Record<string, string> = {
+  uploade: 'Uploadé', approuve: 'Approuvé', rejete: 'Rejeté', en_verification: 'En révision',
 }

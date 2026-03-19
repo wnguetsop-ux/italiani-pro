@@ -1,105 +1,111 @@
 'use client'
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
-import { useState } from 'react'
-import {
-  LayoutDashboard, Users, GitBranch, BarChart2, DollarSign,
-  Settings, Bell, Menu, X, Shield, ChevronRight,
-  FileText, Calendar, MessageCircle, Users2, LogOut
-} from 'lucide-react'
-import { cn } from '@/lib/utils'
-import { logoutUser } from '@/lib/auth'
+import { usePathname } from 'next/navigation'
+import { useState, useEffect } from 'react'
+import { LayoutDashboard, Users, MessageCircle, CreditCard, Brain, Menu, X, LogOut, Calendar, ChevronRight } from 'lucide-react'
+import { logout } from '@/lib/auth'
+import { db, auth } from '@/lib/firebase'
+import { doc, getDoc, collection, getDocs } from 'firebase/firestore'
 
 const NAV = [
-  { href: '/admin/dashboard',  icon: LayoutDashboard, label: 'Dashboard'      },
-  { href: '/admin/candidates', icon: Users,           label: 'Candidats'      },
-  { href: '/admin/pipeline',   icon: GitBranch,       label: 'Pipeline Kanban'},
-  { href: '/admin/finance',    icon: DollarSign,      label: 'Finance'        },
-  { href: '/admin/analytics',  icon: BarChart2,       label: 'Analytics'      },
-  { href: '/admin/team',       icon: Users2,          label: 'Équipe'         },
+  { href:'/admin',           icon:LayoutDashboard, label:'Dashboard',  exact:true  },
+  { href:'/admin/candidats', icon:Users,           label:'Candidats',  exact:false },
+  { href:'/admin/messages',  icon:MessageCircle,   label:'Messages',   exact:false },
+  { href:'/admin/paiements', icon:CreditCard,      label:'Paiements',  exact:false },
+  { href:'/admin/ia',        icon:Brain,           label:'Agents IA',  exact:false },
+  { href:'/admin/flussi',    icon:Calendar,        label:'Calendrier', exact:false },
 ]
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname()
-  const router   = useRouter()
-  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const path = usePathname()
+  const [open, setOpen]       = useState(false)
+  const [adminName, setAdminName] = useState('')
+  const [nbCandidats, setNbCandidats] = useState(0)
 
-  const handleLogout = async () => {
-    await logoutUser()
-  }
+  useEffect(() => {
+    const uid = auth.currentUser?.uid
+    if (!uid) return
+    getDoc(doc(db, 'users', uid)).then(s => { if (s.exists()) setAdminName(s.data().full_name ?? '') })
+    getDocs(collection(db, 'dossiers')).then(s => setNbCandidats(s.size))
+  }, [])
+
+  const active = (href: string, exact: boolean) =>
+    exact ? path === href : path === href || path.startsWith(href + '/')
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
-      {/* Sidebar */}
-      <aside className={cn(
-        'fixed inset-y-0 left-0 z-50 flex flex-col bg-navy-950 text-white w-64 transition-transform duration-300',
-        sidebarOpen ? 'translate-x-0' : '-translate-x-full',
-        'lg:translate-x-0 lg:static lg:inset-auto'
-      )}>
-        <div className="h-16 flex items-center px-6 border-b border-white/10">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-gold-400 to-gold-600 flex items-center justify-center">
-              <Shield size={15} className="text-white" />
-            </div>
-            <span className="font-bold text-white">
-              Italiani<span className="text-gold-400">Pro</span>
-            </span>
-            <span className="ml-1 text-[10px] bg-navy-800 text-gold-400 border border-gold-500/30 px-1.5 py-0.5 rounded-md">Admin</span>
+    <div style={{ display:'flex', minHeight:'100vh', background:'#F8F9FC' }}>
+      {open && <div onClick={() => setOpen(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', zIndex:40 }} />}
+
+      <style>{`
+        @media(min-width:1024px){
+          .adm-aside { transform:translateX(0)!important; position:sticky!important; top:0!important; height:100vh!important; }
+          .adm-menu-btn { display:none!important; }
+          .adm-close-btn { display:none!important; }
+        }
+      `}</style>
+
+      <aside className="adm-aside" style={{
+        width:'220px', background:'#111827', flexShrink:0,
+        display:'flex', flexDirection:'column',
+        position:'fixed', top:0, bottom:0, left:0, zIndex:50,
+        transform: open ? 'translateX(0)' : 'translateX(-100%)',
+        transition:'transform 0.25s ease',
+      }}>
+        <div style={{ padding:'18px 14px 14px', borderBottom:'1px solid rgba(255,255,255,0.07)', display:'flex', alignItems:'center', gap:'10px' }}>
+          <div style={{ width:'34px', height:'34px', background:'#D4A017', borderRadius:'9px', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+            <span style={{ color:'white', fontWeight:'900', fontSize:'13px' }}>IP</span>
           </div>
-          <button onClick={() => setSidebarOpen(false)} className="ml-auto lg:hidden text-gray-400">
-            <X size={18} />
-          </button>
+          <span style={{ fontWeight:'800', fontSize:'15px', color:'white' }}>Italiani<span style={{ color:'#D4A017' }}>Pro</span></span>
+          <span style={{ marginLeft:'auto', fontSize:'10px', background:'rgba(212,160,23,0.2)', color:'#D4A017', padding:'2px 7px', borderRadius:'5px', fontWeight:'700' }}>ADMIN</span>
+          <button className="adm-close-btn" onClick={() => setOpen(false)} style={{ background:'none', border:'none', cursor:'pointer', color:'#6B7280' }}><X size={16}/></button>
         </div>
 
-        <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-0.5">
-          {NAV.map(item => {
-            const active = pathname === item.href || pathname.startsWith(item.href + '/')
-            return (
-              <Link key={item.href} href={item.href}
-                className={cn('nav-item', active ? 'active' : 'text-gray-400')}>
-                <item.icon size={18} />
-                <span>{item.label}</span>
-                {active && <ChevronRight size={13} className="ml-auto text-gold-400" />}
-              </Link>
-            )
-          })}
+        <nav style={{ flex:1, padding:'10px 8px', overflowY:'auto' }}>
+          {NAV.map(item => (
+            <Link key={item.href} href={item.href} onClick={() => setOpen(false)} style={{
+              display:'flex', alignItems:'center', gap:'10px', padding:'9px 12px',
+              borderRadius:'9px', marginBottom:'2px', textDecoration:'none', transition:'all 0.12s',
+              background: active(item.href,item.exact) ? 'rgba(255,255,255,0.1)' : 'transparent',
+              color: active(item.href,item.exact) ? 'white' : '#9CA3AF',
+              fontWeight: active(item.href,item.exact) ? '600' : '400', fontSize:'14px',
+            }}>
+              <item.icon size={16} />
+              {item.label}
+              {item.href === '/admin/candidats' && nbCandidats > 0 && (
+                <span style={{ marginLeft:'auto', background:'rgba(255,255,255,0.12)', color:'#D1D5DB', fontSize:'11px', fontWeight:'700', padding:'1px 7px', borderRadius:'10px' }}>{nbCandidats}</span>
+              )}
+            </Link>
+          ))}
         </nav>
 
-        <div className="p-4 border-t border-white/10">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-8 h-8 rounded-full bg-navy-700 flex items-center justify-center text-sm font-bold text-gold-400">A</div>
-            <div>
-              <div className="text-sm font-medium text-white">Admin</div>
-              <div className="text-xs text-gray-500">super_admin</div>
+        <div style={{ padding:'10px 8px', borderTop:'1px solid rgba(255,255,255,0.07)' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:'10px', padding:'8px 12px', marginBottom:'4px' }}>
+            <div style={{ width:'32px', height:'32px', background:'#D4A017', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', color:'white', fontWeight:'800', fontSize:'12px', flexShrink:0 }}>
+              {adminName ? adminName.split(' ').map((n:string)=>n[0]).join('').slice(0,2).toUpperCase() : 'A'}
+            </div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontWeight:'600', fontSize:'12px', color:'white', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{adminName||'Administrateur'}</div>
+              <div style={{ fontSize:'10px', color:'#6B7280' }}>Super Admin</div>
             </div>
           </div>
-          <button onClick={handleLogout}
-            className="flex items-center gap-2 text-xs text-gray-500 hover:text-red-400 transition">
-            <LogOut size={13} /> Déconnexion
+          <button onClick={logout} style={{ display:'flex', alignItems:'center', gap:'8px', padding:'8px 12px', borderRadius:'8px', width:'100%', background:'none', border:'none', cursor:'pointer', color:'#EF4444', fontSize:'13px', fontWeight:'500' }}>
+            <LogOut size={14}/> Déconnexion
           </button>
         </div>
       </aside>
 
-      {sidebarOpen && (
-        <div className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={() => setSidebarOpen(false)} />
-      )}
-
-      <div className="flex-1 flex flex-col min-w-0">
-        <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 sm:px-6 sticky top-0 z-30 shadow-sm">
-          <button onClick={() => setSidebarOpen(true)} className="lg:hidden text-gray-500">
-            <Menu size={20} />
-          </button>
-          <div className="hidden lg:block text-sm text-gray-400">
-            {new Date().toLocaleDateString('fr-FR', { weekday:'long', day:'numeric', month:'long', year:'numeric' })}
+      <div style={{ flex:1, display:'flex', flexDirection:'column', minWidth:0 }}>
+        <header style={{ background:'white', borderBottom:'1.5px solid #E4E8EF', padding:'0 16px', height:'54px', display:'flex', alignItems:'center', gap:'12px', position:'sticky', top:0, zIndex:30 }}>
+          <button className="adm-menu-btn" onClick={() => setOpen(true)} style={{ background:'none', border:'none', cursor:'pointer', color:'#6B7280' }}><Menu size={20}/></button>
+          <div style={{ flex:1, display:'flex', alignItems:'center', gap:'6px', fontSize:'13px', color:'#9CA3AF' }}>
+            <Link href="/admin" style={{ color:'#6B7280', textDecoration:'none', fontWeight:'500' }}>Admin</Link>
+            {path !== '/admin' && <><ChevronRight size={13}/><span style={{ color:'#111827', fontWeight:'600' }}>{path.split('/').filter(Boolean).pop()}</span></>}
           </div>
-          <div className="flex items-center gap-3 ml-auto">
-            <button className="relative text-gray-500 hover:text-navy-700 transition">
-              <Bell size={20} />
-              <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[9px] rounded-full flex items-center justify-center font-bold">5</span>
-            </button>
-          </div>
+          <Link href="/" style={{ fontSize:'12px', color:'#6B7280', textDecoration:'none' }}>← Site public</Link>
         </header>
-        <main className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8">{children}</main>
+        <main style={{ flex:1, padding:'20px 16px', maxWidth:'1100px', width:'100%', margin:'0 auto' }}>
+          {children}
+        </main>
       </div>
     </div>
   )
