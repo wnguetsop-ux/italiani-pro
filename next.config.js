@@ -1,5 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  serverExternalPackages: [
+    'firebase-admin',
+    '@google-cloud/firestore',
+    '@google-cloud/storage',
+  ],
   images: {
     remotePatterns: [
       { protocol: 'https', hostname: 'storage.googleapis.com' },
@@ -7,5 +12,4 @@ const nextConfig = {
     ],
   },
 }
-
 module.exports = nextConfig

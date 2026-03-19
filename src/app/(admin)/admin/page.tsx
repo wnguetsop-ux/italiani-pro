@@ -1,228 +1,223 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
-import { db, auth } from '@/lib/firebase'
-import { collection, getDocs, query, where, limit, getDoc, doc } from 'firebase/firestore'
-import { Users, AlertTriangle, CheckCircle, CreditCard, Brain, Eye, RefreshCw, Flame, TrendingUp, Calendar } from 'lucide-react'
-import { STATUT_LABEL, days_until, initiales } from '@/lib/utils'
+import { db } from '@/lib/firebase'
+import { collection, getDocs, query, where, orderBy, limit } from 'firebase/firestore'
+import { Users, Flame, AlertTriangle, CreditCard, Eye, RefreshCw } from 'lucide-react'
+import { fmt_date, days_until, STATUT_LABEL, initiales } from '@/lib/utils'
+import { toast } from 'sonner'
+
+const STATUT_BADGE: Record<string,{bg:string,color:string}> = {
+  nouveau:           { bg:'#F3F4F6', color:'#6B7280'  },
+  incomplet:         { bg:'#FFF7ED', color:'#C2410C'  },
+  en_cours:          { bg:'#F5F3FF', color:'#7C3AED'  },
+  en_verification:   { bg:'#EFF6FF', color:'#1D4ED8'  },
+  attente_paiement:  { bg:'#FFF7ED', color:'#C2410C'  },
+  pret:              { bg:'#F0FDF4', color:'#15803D'  },
+  termine:           { bg:'#ECFDF5', color:'#065F46'  },
+}
+
+const FLUSSI_DAYS = days_until('2027-01-12')
 
 export default function AdminDashboard() {
-  const [candidats, setCandidats] = useState<any[]>([])
-  const [tasks, setTasks]         = useState<any[]>([])
-  const [adminName, setAdminName] = useState('')
-  const [loading, setLoading]     = useState(true)
+  const [rows, setRows]         = useState<any[]>([])
+  const [loading, setLoading]   = useState(true)
   const [refreshing, setRefreshing] = useState(false)
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setRefreshing(true)
     try {
-      const uid = auth.currentUser?.uid
-      if (uid) {
-        const s = await getDoc(doc(db, 'users', uid))
-        if (s.exists()) setAdminName(s.data().full_name ?? '')
-      }
-      const dosSnap = await getDocs(collection(db, 'dossiers'))
-      const list: any[] = []
-      for (const d of dosSnap.docs) {
-        const p = d.data()
-        const u = await getDoc(doc(db, 'users', d.id))
-        const ud = u.exists() ? u.data() : {}
-        list.push({ id: d.id, ...p, full_name: ud.full_name ?? '—', email: ud.email ?? '', phone: ud.phone ?? '' })
-      }
-      list.sort((a, b) => (b.created_at?.toMillis?.() ?? 0) - (a.created_at?.toMillis?.() ?? 0))
-      setCandidats(list)
-      const tSnap = await getDocs(query(collection(db, 'admin_tasks'), where('fait', '==', false), limit(8)))
-      setTasks(tSnap.docs.map(d => ({ id: d.id, ...d.data() })))
-    } finally { setLoading(false); setRefreshing(false) }
-  }
+      // Charger tous les dossiers
+      const dossiersSnap = await getDocs(collection(db, 'dossiers'))
+      const result: any[] = []
 
-  useEffect(() => { load() }, [])
+      // Charger les users en parallèle
+      await Promise.all(
+        dossiersSnap.docs.map(async (d) => {
+          const uSnap = await getDocs(
+            query(collection(db, 'users'), where('uid','==',d.id))
+          )
+          const u = uSnap.empty ? null : uSnap.docs[0].data()
+          result.push({
+            id:         d.id,
+            ...d.data(),
+            full_name:  u?.full_name ?? '—',
+            email:      u?.email     ?? '',
+            country:    u?.country_code ?? '',
+          })
+        })
+      )
 
-  const s = {
-    total:     candidats.length,
-    urgents:   candidats.filter(c => c.is_urgent).length,
-    incomplets:candidats.filter(c => c.statut === 'incomplet').length,
-    en_cours:  candidats.filter(c => c.statut === 'en_cours').length,
-    att_pmt:   candidats.filter(c => c.statut === 'attente_paiement').length,
-    termines:  candidats.filter(c => c.statut === 'termine').length,
-  }
+      // Trier par date
+      result.sort((a,b) => (b.created_at?.seconds??0) - (a.created_at?.seconds??0))
+      setRows(result)
+    } catch (e: any) {
+      console.error('Admin load error:', e)
+      toast.error(`Erreur: ${e.message}`)
+    } finally {
+      setLoading(false)
+      setRefreshing(false)
+    }
+  }, [])
 
-  const SCOLOR: Record<string, string> = {
-    nouveau:'#9CA3AF', incomplet:'#EF4444', en_cours:'#8B5CF6',
-    en_verification:'#3B82F6', attente_paiement:'#F97316',
-    attente_client:'#F59E0B', pret:'#22C55E', termine:'#059669',
-  }
+  useEffect(() => { load() }, [load])
 
-  if (loading) return <div style={{ display:'flex', alignItems:'center', gap:'12px', padding:'48px', color:'#6B7280' }}><span className="spinner" /> Chargement...</div>
+  const total    = rows.length
+  const urgents  = rows.filter(r => r.is_urgent).length
+  const incomBl  = rows.filter(r => ['nouveau','incomplet'].includes(r.statut)).length
+  const enCours  = rows.filter(r => r.statut === 'en_cours').length
+  const nowWeek  = rows.filter(r => {
+    const s = r.created_at?.seconds
+    return s && (Date.now()/1000 - s) < 604800
+  }).length
+
+  if (loading) return (
+    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'200px', gap:'12px', color:'#6B7280' }}>
+      <span className="spinner" /> Chargement des données Firebase...
+    </div>
+  )
 
   return (
-    <div style={{ display:'flex', flexDirection:'column', gap:'20px' }} className="fade-up">
+    <div style={{ display:'flex', flexDirection:'column', gap:'18px' }}>
 
-      <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:'12px', flexWrap:'wrap' }}>
+      {/* Header */}
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:'10px' }}>
         <div>
-          <h1 style={{ fontSize:'22px', fontWeight:'800' }}>Bonjour {adminName || 'Admin'} 👋</h1>
-          <p style={{ color:'#6B7280', fontSize:'13px', marginTop:'3px' }}>
-            {new Date().toLocaleDateString('fr-FR', { weekday:'long', day:'numeric', month:'long', year:'numeric' })}
+          <h1 style={{ fontSize:'22px', fontWeight:'800', margin:'0 0 3px' }}>Dashboard Admin</h1>
+          <p style={{ color:'#6B7280', fontSize:'13px', margin:0 }}>
+            {new Date().toLocaleDateString('fr-FR', { weekday:'long', day:'numeric', month:'long' })}
           </p>
         </div>
         <button onClick={load} disabled={refreshing} className="btn btn-secondary btn-sm">
-          <RefreshCw size={14} style={refreshing ? { animation:'spin 0.7s linear infinite' } : {}} /> Actualiser
+          <RefreshCw size={14} style={{ animation:refreshing?'spin 0.7s linear infinite':undefined }} />
+          {refreshing ? 'Actualisation...' : 'Actualiser'}
         </button>
       </div>
 
       {/* Flussi */}
-      <div style={{ background:'linear-gradient(135deg,#1B3A6B,#2952A3)', borderRadius:'14px', padding:'18px 20px', color:'white', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'16px', flexWrap:'wrap' }}>
-        <div style={{ display:'flex', alignItems:'center', gap:'14px' }}>
-          <Calendar size={22} color="#D4A017" />
-          <div>
-            <div style={{ fontWeight:'700', fontSize:'15px' }}>Click Day Flussi — 12 Janvier 2027</div>
-            <div style={{ fontSize:'12px', color:'rgba(255,255,255,0.6)', marginTop:'2px' }}>Préparez les dossiers maintenant.</div>
-          </div>
+      <div style={{ background:'linear-gradient(135deg,#111827,#1F2937)', borderRadius:'14px', padding:'18px 20px', color:'white', display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:'12px' }}>
+        <div>
+          <div style={{ fontSize:'11px', color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:'4px' }}>⏱ Click Day Flussi</div>
+          <div style={{ fontWeight:'700', fontSize:'16px' }}>12 Janvier 2027 — Saisonniers Agricoles</div>
+          <div style={{ fontSize:'12px', color:'#D4A017', marginTop:'3px' }}>Préparez les dossiers maintenant</div>
         </div>
-        <div style={{ background:'rgba(212,160,23,0.2)', border:'1px solid rgba(212,160,23,0.3)', borderRadius:'10px', padding:'10px 18px', textAlign:'center', flexShrink:0 }}>
-          <div style={{ fontSize:'24px', fontWeight:'900', color:'#D4A017' }}>{days_until('2027-01-12')}</div>
-          <div style={{ fontSize:'11px', color:'rgba(255,255,255,0.6)' }}>jours restants</div>
+        <div style={{ background:'rgba(255,255,255,0.08)', borderRadius:'10px', padding:'10px 20px', textAlign:'center', flexShrink:0 }}>
+          <div style={{ fontSize:'28px', fontWeight:'900', color:'#F0BC2E', lineHeight:1 }}>{FLUSSI_DAYS}</div>
+          <div style={{ fontSize:'11px', color:'#9CA3AF', marginTop:'2px' }}>jours restants</div>
         </div>
       </div>
 
       {/* Stats */}
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))', gap:'12px' }}>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(120px,1fr))', gap:'10px' }}>
         {[
-          { l:'Total candidats',  v:s.total,      c:'#1B3A6B', I:Users         },
-          { l:'Urgents',          v:s.urgents,    c:'#EF4444', I:Flame          },
-          { l:'Incomplets',       v:s.incomplets, c:'#F97316', I:AlertTriangle  },
-          { l:'En cours',         v:s.en_cours,   c:'#8B5CF6', I:TrendingUp     },
-          { l:'Attente paiement', v:s.att_pmt,    c:'#D97706', I:CreditCard     },
-          { l:'Terminés',         v:s.termines,   c:'#059669', I:CheckCircle    },
-        ].map((st, i) => (
-          <Link key={i} href="/admin/candidats" style={{ textDecoration:'none' }}>
-            <div className="card card-hover" style={{ padding:'14px', textAlign:'center' }}>
-              <div style={{ width:'36px', height:'36px', background:`${st.c}18`, borderRadius:'9px', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 8px' }}>
-                <st.I size={18} color={st.c} />
-              </div>
-              <div style={{ fontSize:'24px', fontWeight:'900', color:st.c }}>{st.v}</div>
-              <div style={{ fontSize:'11px', color:'#6B7280', marginTop:'2px', lineHeight:'1.3' }}>{st.l}</div>
+          { l:'Total candidats', v:total,   color:'#1B3A6B', bg:'#EBF0FF' },
+          { l:'Cette semaine',   v:nowWeek, color:'#7C3AED', bg:'#F5F3FF' },
+          { l:'Urgents',         v:urgents, color:'#EF4444', bg:'#FFF1F2' },
+          { l:'À compléter',     v:incomBl, color:'#F97316', bg:'#FFF7ED' },
+          { l:'En cours',        v:enCours, color:'#059669', bg:'#F0FDF4' },
+        ].map(s => (
+          <div key={s.l} className="card" style={{ padding:'14px', textAlign:'center' }}>
+            <div style={{ fontSize:'24px', fontWeight:'900', color:s.color }}>{s.v}</div>
+            <div style={{ fontSize:'11px', color:'#9CA3AF', marginTop:'3px' }}>{s.l}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Table */}
+      <div className="card" style={{ padding:0, overflow:'hidden' }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'16px 18px', borderBottom:'1px solid #F0F2F5' }}>
+          <div>
+            <h2 style={{ fontSize:'16px', fontWeight:'700', margin:'0 0 2px' }}>Tous les candidats ({total})</h2>
+            <p style={{ fontSize:'12px', color:'#9CA3AF', margin:0 }}>Mis à jour en temps réel</p>
+          </div>
+          <Link href="/admin/candidats" className="btn btn-secondary btn-sm">Voir tout →</Link>
+        </div>
+
+        {rows.length === 0 ? (
+          <div style={{ padding:'40px 20px', textAlign:'center' }}>
+            <div style={{ width:'52px', height:'52px', background:'#F3F4F6', borderRadius:'12px', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 12px' }}>
+              <Users size={24} color="#9CA3AF" />
             </div>
+            <h3 style={{ fontWeight:'700', fontSize:'14px', margin:'0 0 6px' }}>Aucun candidat inscrit</h3>
+            <p style={{ color:'#9CA3AF', fontSize:'13px', margin:0 }}>
+              Les candidats apparaîtront ici dès qu'ils s'inscriront sur <strong>/register</strong>
+            </p>
+          </div>
+        ) : (
+          <div style={{ overflowX:'auto' }}>
+            <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'13.5px' }}>
+              <thead>
+                <tr style={{ background:'#F9FAFB' }}>
+                  <th style={{ padding:'10px 14px', textAlign:'left', fontWeight:'600', color:'#6B7280', fontSize:'12px', textTransform:'uppercase', letterSpacing:'0.04em', whiteSpace:'nowrap' }}>Candidat</th>
+                  <th style={{ padding:'10px 14px', textAlign:'left', fontWeight:'600', color:'#6B7280', fontSize:'12px', textTransform:'uppercase' }}>Statut</th>
+                  <th style={{ padding:'10px 14px', textAlign:'left', fontWeight:'600', color:'#6B7280', fontSize:'12px', textTransform:'uppercase' }}>Score</th>
+                  <th style={{ padding:'10px 14px', textAlign:'left', fontWeight:'600', color:'#6B7280', fontSize:'12px', textTransform:'uppercase', whiteSpace:'nowrap' }}>Inscrit le</th>
+                  <th style={{ padding:'10px 14px', width:'50px' }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.slice(0,12).map(c => {
+                  const badge = STATUT_BADGE[c.statut] ?? { bg:'#F3F4F6', color:'#6B7280' }
+                  return (
+                    <tr key={c.id} style={{ borderTop:'1px solid #F0F2F5' }}>
+                      <td style={{ padding:'12px 14px' }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
+                          {c.is_urgent && <Flame size={13} color="#EF4444" />}
+                          <div style={{ width:'32px', height:'32px', borderRadius:'50%', background:'#EBF0FF', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:'700', fontSize:'12px', color:'#1B3A6B', flexShrink:0 }}>
+                            {initiales(c.full_name)}
+                          </div>
+                          <div style={{ minWidth:0 }}>
+                            <div style={{ fontWeight:'600', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:'160px' }}>{c.full_name}</div>
+                            <div style={{ fontSize:'11px', color:'#9CA3AF', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:'160px' }}>{c.email}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td style={{ padding:'12px 14px' }}>
+                        <span style={{ fontSize:'11px', fontWeight:'600', padding:'3px 9px', borderRadius:'99px', background:badge.bg, color:badge.color, whiteSpace:'nowrap' }}>
+                          {STATUT_LABEL[c.statut] ?? c.statut}
+                        </span>
+                      </td>
+                      <td style={{ padding:'12px 14px' }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:'7px' }}>
+                          <div style={{ width:'55px', height:'5px', background:'#E9ECF0', borderRadius:'99px', overflow:'hidden' }}>
+                            <div style={{ height:'100%', background:c.score_completion>=70?'#22C55E':c.score_completion>=40?'#F97316':'#EF4444', width:`${c.score_completion||0}%`, borderRadius:'99px' }} />
+                          </div>
+                          <span style={{ fontSize:'12px', fontWeight:'600', color:c.score_completion>=70?'#059669':c.score_completion>=40?'#D97706':'#DC2626' }}>
+                            {c.score_completion||0}%
+                          </span>
+                        </div>
+                      </td>
+                      <td style={{ padding:'12px 14px', fontSize:'12px', color:'#9CA3AF', whiteSpace:'nowrap' }}>{fmt_date(c.created_at)}</td>
+                      <td style={{ padding:'12px 14px' }}>
+                        <Link href={`/admin/candidats/${c.id}`} className="btn btn-secondary btn-icon btn-sm" title="Voir dossier">
+                          <Eye size={14} />
+                        </Link>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Nav rapide */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))', gap:'10px' }}>
+        {[
+          { href:'/admin/candidats', label:'👥 Candidats',    desc:'Gérer les dossiers'       },
+          { href:'/admin/messages',  label:'💬 Messages',     desc:'Conversations'             },
+          { href:'/admin/paiements', label:'💳 Paiements',    desc:'Commandes et encaissements'},
+          { href:'/admin/ia',        label:'🤖 Agents IA',    desc:'Générer CV, lettres...'    },
+        ].map(a => (
+          <Link key={a.href} href={a.href} className="card card-hover" style={{ textDecoration:'none', padding:'14px' }}>
+            <div style={{ fontWeight:'700', fontSize:'14px', marginBottom:'4px' }}>{a.label}</div>
+            <div style={{ fontSize:'12px', color:'#9CA3AF' }}>{a.desc}</div>
           </Link>
         ))}
       </div>
 
-      {/* Main grid */}
-      <div style={{ display:'grid', gridTemplateColumns:'minmax(0,2fr) minmax(0,1fr)', gap:'16px' }}>
-
-        {/* Candidats */}
-        <div className="card" style={{ padding:0, overflow:'hidden' }}>
-          <div style={{ padding:'14px 18px', borderBottom:'1px solid #F0F2F5', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-            <h2 className="section-title">Candidats ({s.total})</h2>
-            <Link href="/admin/candidats" style={{ fontSize:'13px', color:'#1B3A6B', fontWeight:'600', textDecoration:'none' }}>Voir tous →</Link>
-          </div>
-          {candidats.length === 0 ? (
-            <div className="empty">
-              <div className="empty-icon"><Users size={22} color="#9CA3AF" /></div>
-              <h3>Aucun candidat</h3>
-              <p>Partagez le lien <strong>/register</strong> à vos clients.</p>
-            </div>
-          ) : (
-            <div>
-              {candidats.slice(0, 8).map(c => (
-                <Link key={c.id} href={`/admin/candidats/${c.id}`} style={{ textDecoration:'none', display:'flex', alignItems:'center', gap:'12px', padding:'11px 18px', borderBottom:'1px solid #F9FAFB', transition:'background 0.1s' }}
-                  onMouseEnter={e => (e.currentTarget.style.background = '#F9FAFB')}
-                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
-                  <div style={{ width:'34px', height:'34px', borderRadius:'50%', background:'#EBF0FF', display:'flex', alignItems:'center', justifyContent:'center', color:'#1B3A6B', fontWeight:'700', fontSize:'12px', flexShrink:0 }}>
-                    {initiales(c.full_name)}
-                  </div>
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ display:'flex', alignItems:'center', gap:'5px' }}>
-                      {c.is_urgent && <Flame size={11} color="#EF4444" />}
-                      <span style={{ fontWeight:'600', fontSize:'13.5px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{c.full_name}</span>
-                    </div>
-                    <div style={{ fontSize:'11px', color:'#9CA3AF', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{c.email}</div>
-                  </div>
-                  <div style={{ display:'flex', alignItems:'center', gap:'8px', flexShrink:0 }}>
-                    <span style={{ fontSize:'11px', fontWeight:'600', padding:'3px 9px', borderRadius:'12px',
-                      background: c.statut === 'termine' ? '#F0FDF4' : c.statut === 'incomplet' ? '#FFF1F2' : c.statut === 'en_cours' ? '#F5F3FF' : '#F3F4F6',
-                      color: SCOLOR[c.statut] ?? '#6B7280' }}>
-                      {STATUT_LABEL[c.statut] ?? 'Nouveau'}
-                    </span>
-                    <span style={{ fontSize:'12px', fontWeight:'700', color:'#1B3A6B' }}>{c.score_completion ?? 0}%</span>
-                    <Eye size={14} color="#9CA3AF" />
-                  </div>
-                </Link>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Colonne droite */}
-        <div style={{ display:'flex', flexDirection:'column', gap:'12px' }}>
-
-          {/* Alertes */}
-          <div className="card" style={{ padding:0, overflow:'hidden' }}>
-            <div style={{ padding:'12px 16px', borderBottom:'1px solid #F0F2F5' }}>
-              <h3 className="section-title" style={{ fontSize:'14px' }}>Alertes</h3>
-            </div>
-            {s.urgents === 0 && s.incomplets === 0 && s.att_pmt === 0 ? (
-              <div style={{ padding:'18px', textAlign:'center' }}>
-                <CheckCircle size={20} color="#22C55E" style={{ margin:'0 auto 6px' }} />
-                <div style={{ fontSize:'13px', color:'#6B7280' }}>Tout est à jour ✅</div>
-              </div>
-            ) : (
-              <div>
-                {s.urgents > 0 && (
-                  <Link href="/admin/candidats?filtre=urgent" style={{ display:'flex', gap:'8px', padding:'10px 16px', borderBottom:'1px solid #F9FAFB', background:'#FFF1F2', textDecoration:'none' }}>
-                    <Flame size={14} color="#EF4444" style={{ flexShrink:0, marginTop:'1px' }} />
-                    <span style={{ fontSize:'12.5px', color:'#9F1239' }}><strong>{s.urgents}</strong> dossier(s) urgent(s)</span>
-                  </Link>
-                )}
-                {s.incomplets > 0 && (
-                  <Link href="/admin/candidats?filtre=incomplet" style={{ display:'flex', gap:'8px', padding:'10px 16px', borderBottom:'1px solid #F9FAFB', background:'#FFF7ED', textDecoration:'none' }}>
-                    <AlertTriangle size={14} color="#F97316" style={{ flexShrink:0, marginTop:'1px' }} />
-                    <span style={{ fontSize:'12.5px', color:'#92400E' }}><strong>{s.incomplets}</strong> incomplet(s)</span>
-                  </Link>
-                )}
-                {s.att_pmt > 0 && (
-                  <Link href="/admin/paiements" style={{ display:'flex', gap:'8px', padding:'10px 16px', background:'#FFFBEB', textDecoration:'none' }}>
-                    <CreditCard size={14} color="#D97706" style={{ flexShrink:0, marginTop:'1px' }} />
-                    <span style={{ fontSize:'12.5px', color:'#92400E' }}><strong>{s.att_pmt}</strong> paiement(s) en attente</span>
-                  </Link>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Tâches */}
-          <div className="card" style={{ padding:0, overflow:'hidden' }}>
-            <div style={{ padding:'12px 16px', borderBottom:'1px solid #F0F2F5', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-              <h3 className="section-title" style={{ fontSize:'14px' }}>Tâches</h3>
-              {tasks.length > 0 && <span style={{ background:'#EF4444', color:'white', fontSize:'10px', fontWeight:'700', width:'18px', height:'18px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center' }}>{tasks.length}</span>}
-            </div>
-            {tasks.length === 0 ? (
-              <div style={{ padding:'16px', textAlign:'center', fontSize:'12px', color:'#9CA3AF' }}>Aucune tâche 🎉</div>
-            ) : (
-              tasks.slice(0, 5).map(t => (
-                <div key={t.id} style={{ padding:'10px 16px', borderBottom:'1px solid #F9FAFB', display:'flex', gap:'8px', alignItems:'flex-start' }}>
-                  <div style={{ width:'6px', height:'6px', borderRadius:'50%', flexShrink:0, marginTop:'5px', background: t.priorite === 1 ? '#EF4444' : t.priorite === 2 ? '#F97316' : '#9CA3AF' }} />
-                  <span style={{ fontSize:'12.5px', color:'#374151', lineHeight:'1.4' }}>{t.titre}</span>
-                </div>
-              ))
-            )}
-          </div>
-
-          {/* Agents IA */}
-          <Link href="/admin/ia" style={{ textDecoration:'none' }}>
-            <div className="card card-hover" style={{ background:'#1B3A6B', border:'none' }}>
-              <div style={{ display:'flex', alignItems:'center', gap:'10px', marginBottom:'8px' }}>
-                <Brain size={18} color="#D4A017" />
-                <span style={{ fontWeight:'700', fontSize:'14px', color:'white' }}>Agents IA</span>
-              </div>
-              <p style={{ fontSize:'12px', color:'rgba(255,255,255,0.55)', lineHeight:'1.5', marginBottom:'8px' }}>
-                Générer CV, analyser profil, lettre de motivation, rappel paiement...
-              </p>
-              <div style={{ fontSize:'12px', color:'#D4A017', fontWeight:'600' }}>Accéder aux agents →</div>
-            </div>
-          </Link>
-        </div>
-      </div>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
   )
 }

@@ -1,194 +1,196 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { db, auth } from '@/lib/firebase'
 import { doc, getDoc, collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore'
-import { FolderOpen, MessageCircle, CreditCard, Calendar, Upload, ArrowRight, AlertTriangle, Clock, CheckCircle, User } from 'lucide-react'
-import { fmt_date, STATUT_LABEL, STATUT_BADGE, days_until } from '@/lib/utils'
+import { FolderOpen, MessageCircle, CreditCard, Calendar, Upload, ArrowRight, AlertTriangle, CheckCircle, User, PenLine } from 'lucide-react'
+import { days_until } from '@/lib/utils'
+
+const FLUSSI_DAYS = days_until('2027-01-12')
 
 export default function Dashboard() {
-  const [user, setUser]   = useState<any>(null)
-  const [dossier, setDossier] = useState<any>(null)
-  const [docs, setDocs]   = useState<any[]>([])
-  const [msgs, setMsgs]   = useState<any[]>([])
-  const [order, setOrder] = useState<any>(null)
+  const [data, setData]     = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const uid = auth.currentUser?.uid
 
-  useEffect(() => {
-    if (!uid) return
-    Promise.all([
-      getDoc(doc(db, 'users', uid)),
-      getDoc(doc(db, 'dossiers', uid)),
-      getDocs(query(collection(db, 'documents'), where('uid', '==', uid))),
-      getDocs(query(collection(db, 'orders'), where('uid', '==', uid), orderBy('created_at','desc'), limit(1))),
-    ]).then(([uSnap, dSnap, docsSnap, ordSnap]) => {
-      if (uSnap.exists()) setUser(uSnap.data())
-      if (dSnap.exists()) setDossier(dSnap.data())
-      setDocs(docsSnap.docs.map(d => ({ id:d.id, ...d.data() })))
-      if (!ordSnap.empty) setOrder({ id:ordSnap.docs[0].id, ...ordSnap.docs[0].data() })
-    }).finally(() => setLoading(false))
-  }, [uid])
+  const load = useCallback(async () => {
+    const uid = auth.currentUser?.uid
+    if (!uid) { setLoading(false); return }
+    try {
+      const [uSnap, dSnap, docsSnap] = await Promise.all([
+        getDoc(doc(db, 'users', uid)),
+        getDoc(doc(db, 'dossiers', uid)),
+        getDocs(query(collection(db, 'documents'), where('uid', '==', uid))),
+      ])
+      const u    = uSnap.exists()   ? uSnap.data()   : {}
+      const d    = dSnap.exists()   ? dSnap.data()   : {}
+      const docs = docsSnap.docs.map(x => x.data())
+      setData({ u, d, docs })
+    } catch (e) {
+      console.error('Dashboard load error:', e)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { load() }, [load])
 
   if (loading) return (
     <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'200px', gap:'12px', color:'#6B7280' }}>
-      <span className="spinner" /> Chargement...
+      <div className="spinner" /> Chargement...
     </div>
   )
 
-  const statut = dossier?.statut ?? 'nouveau'
-  const score  = dossier?.score_completion ?? 0
-  const approuves = docs.filter(d => d.statut === 'approuve').length
-  const flussiDays = days_until('2027-01-12')
+  const u    = data?.u    ?? {}
+  const d    = data?.d    ?? {}
+  const docs = data?.docs ?? []
+
+  const approved = docs.filter((x:any) => x.statut === 'approuve').length
+  const score    = d.score_completion ?? 0
+  const statut   = d.statut ?? 'nouveau'
+  const nom      = u.full_name ?? ''
+
+  const STATUT_COLOR: Record<string,string> = {
+    nouveau:'#6B7280', incomplet:'#C2410C', en_cours:'#7C3AED',
+    en_verification:'#1D4ED8', attente_paiement:'#C2410C',
+    pret:'#15803D', termine:'#065F46',
+  }
+  const STATUT_LABEL: Record<string,string> = {
+    nouveau:'Nouveau dossier', incomplet:'Incomplet', en_cours:'En cours',
+    en_verification:'En vérification', attente_paiement:'Attente paiement',
+    pret:'Prêt', termine:'Terminé',
+  }
 
   return (
-    <div style={{ display:'flex', flexDirection:'column', gap:'20px' }} className="fade-up">
+    <div style={{ display:'flex', flexDirection:'column', gap:'18px' }}>
 
-      {/* Welcome */}
-      <div style={{ background:'linear-gradient(135deg, #1B3A6B 0%, #2952A3 100%)', borderRadius:'16px', padding:'24px', color:'white' }}>
-        <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:'16px', flexWrap:'wrap' }}>
+      {/* Hero card */}
+      <div style={{ background:'linear-gradient(135deg,#1B3A6B,#2952A3)', borderRadius:'16px', padding:'22px', color:'white' }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', flexWrap:'wrap', gap:'12px' }}>
           <div>
-            <p style={{ fontSize:'13px', color:'rgba(255,255,255,0.7)', marginBottom:'4px' }}>Bonjour 👋</p>
-            <h1 style={{ fontSize:'22px', fontWeight:'800', marginBottom:'8px' }}>
-              {user?.full_name || 'Bienvenue'}
-            </h1>
-            <span className={`badge ${STATUT_BADGE[statut] || 'badge-draft'}`} style={{ background:'rgba(255,255,255,0.15)', color:'white' }}>
-              {STATUT_LABEL[statut] || 'Nouveau dossier'}
-            </span>
+            <p style={{ fontSize:'13px', color:'rgba(255,255,255,0.65)', margin:'0 0 4px' }}>Bonjour 👋</p>
+            <h1 style={{ fontSize:'20px', fontWeight:'800', margin:'0 0 10px' }}>{nom || 'Bienvenue'}</h1>
+            <span style={{
+              display:'inline-block', background:'rgba(255,255,255,0.15)', color:'white',
+              fontSize:'12px', fontWeight:'600', padding:'3px 12px', borderRadius:'99px',
+            }}>{STATUT_LABEL[statut] ?? statut}</span>
           </div>
-          <div style={{ background:'rgba(255,255,255,0.1)', border:'1px solid rgba(255,255,255,0.2)', borderRadius:'12px', padding:'14px 20px', textAlign:'center', minWidth:'100px' }}>
-            <div style={{ fontSize:'28px', fontWeight:'900', color:'#F0BC2E' }}>{score}%</div>
-            <div style={{ fontSize:'11px', color:'rgba(255,255,255,0.7)', marginTop:'2px' }}>Complétude</div>
+          <div style={{ textAlign:'center', background:'rgba(255,255,255,0.12)', borderRadius:'12px', padding:'12px 20px', minWidth:'90px' }}>
+            <div style={{ fontSize:'26px', fontWeight:'900', color:'#F0BC2E' }}>{score}%</div>
+            <div style={{ fontSize:'11px', color:'rgba(255,255,255,0.65)', marginTop:'2px' }}>Complétude</div>
           </div>
         </div>
-
-        {/* Progress */}
-        <div style={{ marginTop:'16px' }}>
-          <div style={{ display:'flex', justifyContent:'space-between', fontSize:'12px', color:'rgba(255,255,255,0.7)', marginBottom:'6px' }}>
-            <span>Progression du dossier</span>
-            <span>{approuves} doc{approuves > 1 ? 's' : ''} validé{approuves > 1 ? 's' : ''}</span>
+        {/* Progress bar */}
+        <div style={{ marginTop:'14px' }}>
+          <div style={{ height:'6px', background:'rgba(255,255,255,0.15)', borderRadius:'99px', overflow:'hidden' }}>
+            <div style={{ height:'100%', width:`${score}%`, background:'#F0BC2E', borderRadius:'99px', transition:'width 1s ease' }} />
           </div>
-          <div style={{ background:'rgba(255,255,255,0.15)', borderRadius:'99px', height:'7px', overflow:'hidden' }}>
-            <div style={{ height:'100%', background:'#F0BC2E', borderRadius:'99px', width:`${score}%`, transition:'width 1s ease' }} />
+          <div style={{ display:'flex', justifyContent:'space-between', marginTop:'5px', fontSize:'11px', color:'rgba(255,255,255,0.5)' }}>
+            <span>{docs.length} document{docs.length>1?'s':''}</span>
+            <span>{approved} approuvé{approved>1?'s':''}</span>
           </div>
         </div>
       </div>
 
-      {/* Alert si dossier incomplet */}
-      {statut === 'nouveau' && docs.length === 0 && (
-        <div className="alert alert-info">
-          <AlertTriangle size={16} style={{ flexShrink:0, marginTop:'1px' }} />
-          <div>
-            <strong>Complétez votre profil pour commencer</strong><br />
-            Renseignez vos informations personnelles et uploadez vos premiers documents.{' '}
-            <Link href="/profil" style={{ color:'#1D4ED8', fontWeight:'600' }}>Compléter mon profil →</Link>
+      {/* Alert si nouveau */}
+      {(!nom || docs.length === 0) && (
+        <div style={{ background:'#EFF6FF', border:'1.5px solid #BFDBFE', borderRadius:'12px', padding:'14px', display:'flex', gap:'12px', alignItems:'flex-start' }}>
+          <AlertTriangle size={16} color="#1D4ED8" style={{ flexShrink:0, marginTop:'1px' }} />
+          <div style={{ fontSize:'13.5px', color:'#1E40AF' }}>
+            {!nom ? (
+              <>Complétez votre profil pour que votre équipe puisse commencer. <Link href="/profil" style={{ fontWeight:'700', color:'#1D4ED8' }}>Compléter →</Link></>
+            ) : (
+              <>Uploadez vos premiers documents pour démarrer votre dossier. <Link href="/documents/nouveau" style={{ fontWeight:'700', color:'#1D4ED8' }}>Ajouter →</Link></>
+            )}
           </div>
         </div>
       )}
 
-      {/* Stats rapides */}
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(140px, 1fr))', gap:'12px' }}>
-        {[
-          { icon:FolderOpen, label:'Documents', value: docs.length === 0 ? 'Aucun' : `${docs.length} fichier${docs.length>1?'s':''}`, href:'/documents', color:'#1B3A6B' },
-          { icon:MessageCircle, label:'Messages', value: msgs.length === 0 ? 'Aucun' : `${msgs.length} message${msgs.length>1?'s':''}`, href:'/messages', color:'#2563EB' },
-          { icon:CreditCard, label:'Paiements', value: order ? '1 pack actif' : 'Aucun pack', href:'/paiements', color:'#059669' },
-          { icon:Calendar, label:'Flussi 2027', value: `${flussiDays} jours`, href:'/flussi', color:'#D97706' },
-        ].map((s, i) => (
-          <Link key={i} href={s.href} className="card card-hover" style={{ textDecoration:'none', padding:'16px' }}>
-            <div style={{ width:'36px', height:'36px', background:`${s.color}18`, borderRadius:'9px', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:'10px' }}>
-              <s.icon size={18} color={s.color} />
+      {/* Quick stats */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:'10px' }}>
+        <Link href="/documents" style={{ textDecoration:'none' }}>
+          <div className="card card-hover" style={{ padding:'14px' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
+              <div style={{ width:'36px', height:'36px', background:'#EBF0FF', borderRadius:'9px', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                <FolderOpen size={18} color="#1B3A6B" />
+              </div>
+              <div>
+                <div style={{ fontSize:'20px', fontWeight:'900', color:'#1B3A6B', lineHeight:1 }}>{docs.length}</div>
+                <div style={{ fontSize:'12px', color:'#6B7280', marginTop:'2px' }}>Documents</div>
+              </div>
             </div>
-            <div style={{ fontSize:'12px', color:'#6B7280', marginBottom:'3px' }}>{s.label}</div>
-            <div style={{ fontSize:'15px', fontWeight:'700', color:'#111827' }}>{s.value}</div>
-          </Link>
-        ))}
+          </div>
+        </Link>
+        <Link href="/flussi" style={{ textDecoration:'none' }}>
+          <div className="card card-hover" style={{ padding:'14px' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
+              <div style={{ width:'36px', height:'36px', background:'#FFFBEB', borderRadius:'9px', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                <Calendar size={18} color="#D97706" />
+              </div>
+              <div>
+                <div style={{ fontSize:'20px', fontWeight:'900', color:'#D97706', lineHeight:1 }}>{FLUSSI_DAYS}</div>
+                <div style={{ fontSize:'12px', color:'#6B7280', marginTop:'2px' }}>Jours Flussi</div>
+              </div>
+            </div>
+          </div>
+        </Link>
       </div>
 
       {/* Documents récents */}
       <div className="card">
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'16px' }}>
-          <div>
-            <h2 className="section-title">Mes documents</h2>
-            <p className="section-sub">{docs.length === 0 ? 'Aucun document encore' : `${approuves}/${docs.length} approuvé${approuves>1?'s':''}`}</p>
-          </div>
-          <Link href="/documents" style={{ fontSize:'13px', color:'#1B3A6B', fontWeight:'600', textDecoration:'none', display:'flex', alignItems:'center', gap:'4px' }}>
-            Voir tout <ArrowRight size={14} />
-          </Link>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'14px' }}>
+          <h2 style={{ fontSize:'15px', fontWeight:'700', margin:0 }}>Mes documents</h2>
+          <Link href="/documents" style={{ fontSize:'12px', color:'#1B3A6B', fontWeight:'600', textDecoration:'none' }}>Voir tout →</Link>
         </div>
-
         {docs.length === 0 ? (
-          <div className="empty">
-            <div className="empty-icon"><FolderOpen size={24} color="#9CA3AF" /></div>
-            <h3>Aucun document</h3>
-            <p>Uploadez vos documents ou décrivez votre contenu pour que votre équipe puisse commencer.</p>
-            <Link href="/documents/nouveau" className="btn btn-primary btn-sm" style={{ marginTop:'4px' }}>
-              <Upload size={14} /> Ajouter un document
-            </Link>
+          <div style={{ textAlign:'center', padding:'24px 16px', border:'2px dashed #E4E8EF', borderRadius:'12px' }}>
+            <p style={{ color:'#9CA3AF', fontSize:'13px', margin:'0 0 12px' }}>Aucun document encore</p>
+            <div style={{ display:'flex', gap:'8px', justifyContent:'center', flexWrap:'wrap' }}>
+              <Link href="/documents" className="btn btn-primary btn-sm"><Upload size={13} /> Uploader</Link>
+              <Link href="/documents/nouveau" className="btn btn-secondary btn-sm"><PenLine size={13} /> Écrire / Coller</Link>
+            </div>
           </div>
         ) : (
-          <div style={{ display:'flex', flexDirection:'column', gap:'8px' }}>
-            {docs.slice(0, 4).map(d => (
-              <div key={d.id} style={{ display:'flex', alignItems:'center', gap:'12px', padding:'10px 12px', background:'#F9FAFB', borderRadius:'9px', border:'1px solid #F0F2F5' }}>
-                <div style={{ width:'8px', height:'8px', borderRadius:'50%', flexShrink:0, background: d.statut==='approuve'?'#22C55E':d.statut==='rejete'?'#EF4444':'#F97316' }} />
-                <span style={{ flex:1, fontSize:'13.5px', fontWeight:'500', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{d.nom || d.name || 'Document'}</span>
-                <span className={`badge badge-${d.statut === 'approuve' ? 'approved' : d.statut === 'rejete' ? 'rejected' : 'uploaded'}`} style={{ flexShrink:0, fontSize:'10px' }}>
-                  {d.statut === 'approuve' ? 'Approuvé' : d.statut === 'rejete' ? 'Rejeté' : 'En attente'}
+          <div style={{ display:'flex', flexDirection:'column', gap:'7px' }}>
+            {docs.slice(0,4).map((doc:any, i:number) => (
+              <div key={i} style={{ display:'flex', alignItems:'center', gap:'10px', padding:'9px 12px', background:'#F9FAFB', borderRadius:'9px' }}>
+                <div style={{ width:'8px', height:'8px', borderRadius:'50%', flexShrink:0,
+                  background: doc.statut==='approuve'?'#22C55E':doc.statut==='rejete'?'#EF4444':'#F97316' }} />
+                <span style={{ flex:1, fontSize:'13.5px', fontWeight:'500', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                  {doc.nom || doc.name || 'Document'}
+                </span>
+                <span style={{ fontSize:'11px', fontWeight:'600', flexShrink:0,
+                  color: doc.statut==='approuve'?'#15803D':doc.statut==='rejete'?'#BE123C':'#C2410C' }}>
+                  {doc.statut==='approuve'?'Approuvé':doc.statut==='rejete'?'Rejeté':'En attente'}
                 </span>
               </div>
             ))}
-            {docs.length > 4 && (
-              <Link href="/documents" style={{ textAlign:'center', fontSize:'13px', color:'#1B3A6B', padding:'8px', textDecoration:'none' }}>
-                Voir {docs.length - 4} autre{docs.length-4>1?'s':''} →
+            {docs.length > 0 && (
+              <Link href="/documents/nouveau" className="btn btn-secondary btn-sm" style={{ marginTop:'6px', alignSelf:'flex-start' }}>
+                <PenLine size={13} /> Ajouter un document
               </Link>
             )}
           </div>
         )}
       </div>
 
-      {/* Prochaine étape */}
-      <div className="card" style={{ border:'1.5px solid #1B3A6B22', background:'#F8F9FF' }}>
-        <h2 className="section-title" style={{ marginBottom:'12px' }}>Prochaine étape recommandée</h2>
-        {docs.length === 0 ? (
-          <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
-            <div style={{ width:'36px', height:'36px', background:'#1B3A6B', borderRadius:'9px', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-              <Upload size={17} color="white" />
+      {/* Actions rapides */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:'8px' }}>
+        {[
+          { href:'/messages',  icon:MessageCircle, label:'Messages',  color:'#2563EB', bg:'#EFF6FF' },
+          { href:'/paiements', icon:CreditCard,    label:'Paiements', color:'#059669', bg:'#F0FDF4' },
+        ].map(a => (
+          <Link key={a.href} href={a.href} style={{ textDecoration:'none' }}>
+            <div className="card card-hover" style={{ padding:'14px', display:'flex', alignItems:'center', gap:'10px' }}>
+              <div style={{ width:'34px', height:'34px', background:a.bg, borderRadius:'8px', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                <a.icon size={17} color={a.color} />
+              </div>
+              <span style={{ fontWeight:'600', fontSize:'13.5px', color:'#111827' }}>{a.label}</span>
+              <ArrowRight size={15} color="#9CA3AF" style={{ marginLeft:'auto' }} />
             </div>
-            <div style={{ flex:1 }}>
-              <div style={{ fontWeight:'600', fontSize:'14px' }}>Ajoutez vos premiers documents</div>
-              <div style={{ fontSize:'12px', color:'#6B7280', marginTop:'2px' }}>Passeport, CV, diplômes — uploadez ou décrivez votre contenu</div>
-            </div>
-            <Link href="/documents/nouveau" className="btn btn-primary btn-sm" style={{ flexShrink:0 }}>
-              Commencer
-            </Link>
-          </div>
-        ) : !user?.profession ? (
-          <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
-            <div style={{ width:'36px', height:'36px', background:'#D97706', borderRadius:'9px', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-              <User size={17} color="white" />
-            </div>
-            <div style={{ flex:1 }}>
-              <div style={{ fontWeight:'600', fontSize:'14px' }}>Complétez votre profil professionnel</div>
-              <div style={{ fontSize:'12px', color:'#6B7280', marginTop:'2px' }}>Secteur ciblé, profession, expériences — essentiel pour votre CV</div>
-            </div>
-            <Link href="/profil" className="btn btn-primary btn-sm" style={{ flexShrink:0, background:'#D97706' }}>
-              Compléter
-            </Link>
-          </div>
-        ) : (
-          <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
-            <div style={{ width:'36px', height:'36px', background:'#059669', borderRadius:'9px', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-              <CheckCircle size={17} color="white" />
-            </div>
-            <div style={{ flex:1 }}>
-              <div style={{ fontWeight:'600', fontSize:'14px' }}>Votre dossier est en cours de traitement</div>
-              <div style={{ fontSize:'12px', color:'#6B7280', marginTop:'2px' }}>Votre équipe va analyser et optimiser vos documents</div>
-            </div>
-            <Link href="/messages" className="btn btn-secondary btn-sm" style={{ flexShrink:0 }}>
-              Contacter
-            </Link>
-          </div>
-        )}
+          </Link>
+        ))}
       </div>
+
     </div>
   )
 }
