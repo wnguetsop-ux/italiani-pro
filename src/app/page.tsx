@@ -7,7 +7,7 @@ import { toast } from 'sonner'
 
 // ── Section Contact + Formulaire + Processus paiement ────
 function ContactSection() {
-  const [form, setForm] = useState({ nom:'', phone:'', email:'', pack:'Pack Standard — 100 000 XAF (20 employeurs)', secteur:'Agriculture / Saisonniers', message:'' })
+  const [form, setForm] = useState({ nom:'', phone:'', email:'', pack:'Pack Standard — 150 000 XAF (15 candidatures)', secteur:'Agriculture / Saisonniers', message:'' })
   const [sending, setSending]   = useState(false)
   const [sent, setSent]         = useState(false)
   const [reference, setReference] = useState('')
@@ -111,9 +111,9 @@ function ContactSection() {
                 <div>
                   <label style={{ display:'block', fontSize:'12px', fontWeight:'600', color:'#9CA3AF', marginBottom:'5px' }}>Pack souhaité</label>
                   <select value={form.pack} onChange={s('pack')} {...inp} style={{ ...inp.style, paddingRight:'32px' }}>
-                    <option>Pack Starter — 30 000 XAF (5 employeurs)</option>
-                    <option>Pack Standard — 100 000 XAF (20 employeurs)</option>
-                    <option>Pack Premium — 250 000 XAF (50+ employeurs)</option>
+                    <option>Pack Starter — 50 000 XAF (5 candidatures)</option>
+                    <option>Pack Standard — 150 000 XAF (15 candidatures)</option>
+                    <option>Pack Premium — 300 000 XAF (30 candidatures)</option>
                   </select>
                 </div>
                 <div>
@@ -189,7 +189,7 @@ function ContactSection() {
                   {[
                     ['Transaction', 'Envoi d\'argent'],
                     ['Destinataire', '651 495 483'],
-                    ['Montant', '100 000 XAF'],
+                    ['Montant', '150 000 XAF'],
                     ['Frais', '0 XAF'],
                     ['Référence', 'TXN2025XXXXX'],
                     ['Statut', '✓ Succès'],
@@ -231,50 +231,53 @@ const METIERS = [
 
 const PACKS = [
   {
-    badge: 'ESSENTIEL', name: 'Pack Starter',
-    price: '30 000', currency: 'XAF',
+    badge: 'DEMARRAGE', name: 'Pack Starter',
+    price: '50 000', currency: 'XAF',
     employers: '5',
     color: '#1B3A6B',
     features: [
       'Analyse de votre profil',
-      'Optimisation de votre CV (FR)',
-      'Traduction CV en italien',
-      '1 lettre de motivation personnalisée',
-      'Candidature auprès de 5 employeurs ciblés',
-      'Vérification des documents essentiels',
+      'CV professionnel optimisé en italien',
+      '1 lettre de motivation master',
+      'Kit de candidature final validé',
+      '5 candidatures ciblées envoyées pour vous',
+      'Classement des documents essentiels',
+      'Suivi simple de la campagne',
     ],
     popular: false,
   },
   {
     badge: 'LE PLUS POPULAIRE',name: 'Pack Standard',
-    price: '100 000', currency: 'XAF',
-    employers: '20',
+    price: '150 000', currency: 'XAF',
+    employers: '15',
     color: '#059669',
     features: [
       'Tout le Pack Starter inclus',
-      'CV optimisé + lettre en FR et IT',
-      '3 lettres de motivation (agriculture, tourisme, soins)',
-      'Candidature auprès de 20 employeurs',
+      'Création et réglage des comptes plateforme',
+      'CV final + lettre adaptés au métier visé',
+      '15 candidatures ciblées envoyées',
+      'Jusqu à 3 plateformes pertinentes',
       'Vérification complète de tous vos documents',
-      'Préparation aux questions d\'entretien',
-      '30 jours de suivi personnalisé',
-      'WhatsApp dédié à votre dossier',
+      'Historique clair des candidatures',
+      'Relances de base et suivi 7 jours',
+      'WhatsApp dédié au dossier',
     ],
     popular: true,
   },
   {
     badge: 'MAXIMUM DE CHANCES', name: 'Pack Premium',
-    price: '250 000', currency: 'XAF',
-    employers: '50+',
+    price: '300 000', currency: 'XAF',
+    employers: '30',
     color: '#D97706',
     features: [
       'Tout le Pack Standard inclus',
-      'Candidature auprès de 50+ employeurs',
-      '2 séances de coaching vidéo',
-      'Simulation d\'entretien avec notre équipe',
-      'Suivi prioritaire pendant 90 jours',
-      'Alertes employeurs en temps réel',
-      'Mise à jour dossier illimitée',
+      '30 candidatures ciblées envoyées',
+      'Jusqu à 4 plateformes pertinentes',
+      'Lettres et variantes selon le secteur',
+      'Relances et suivi 30 jours',
+      'Priorité de traitement',
+      'Mise à jour du dossier si nécessaire',
+      'Accompagnement premium jusqu à la campagne finale',
     ],
     popular: false,
   },
@@ -282,11 +285,11 @@ const PACKS = [
 
 const FAQ = [
   { q:'Qu\'est-ce que le Decreto Flussi exactement ?', a:'C\'est le décret annuel du gouvernement italien qui fixe le nombre de travailleurs non-européens autorisés à entrer légalement en Italie. Chaque année, des "Click Days" sont organisés : à une date précise, les employeurs italiens soumettent leurs demandes en ligne. Les quotas s\'épuisent en quelques minutes. C\'est pourquoi la préparation à l\'avance est absolument indispensable.' },
-  { q:'Pourquoi soumettre plusieurs candidatures est-il si important ?', a:'Les employeurs reçoivent des dizaines de dossiers. Un candidat avec 1 seule candidature a environ 2% de chances d\'être sélectionné. Avec 20 candidatures, ses chances montent à plus de 35%. Avec 50+, les statistiques montrent plus de 65% de taux de sélection. ItalianiPro optimise votre dossier ET multiplie vos candidatures simultanément.' },
+  { q:'Pourquoi soumettre plusieurs candidatures est-il si important ?', a:'Les employeurs reçoivent beaucoup de dossiers. Une seule candidature ne suffit presque jamais. Plus votre dossier est propre et diffusé sur plusieurs offres cohérentes, plus vos chances réelles augmentent. C\'est pour cela que nos packs incluent 5, 15 ou 30 candidatures ciblées selon le niveau choisi.' },
   { q:'Quel est exactement le rôle de ItalianiPro ?', a:'ItalianiPro est un service d\'intermédiation et d\'accompagnement documentaire. Nous préparons votre dossier (CV, lettres, documents), identifions les employeurs italiens qui recrutent dans votre secteur, et soumettons votre candidature en votre nom. Nous ne garantissons pas l\'emploi — c\'est l\'employeur qui choisit — mais nous maximisons vos chances en ayant le meilleur dossier possible auprès du plus grand nombre d\'employeurs.' },
   { q:'Qu\'est-ce que la Nulla Osta et qui la demande ?', a:'La Nulla Osta (autorisation de travail) est le document officiel délivré par le Sportello Unico delle Immigrazioni de la préfecture italienne. C\'est l\'EMPLOYEUR qui la demande pour vous, pas vous directement. Notre rôle est de vous aider à être sélectionné par un employeur avant le Click Day, afin qu\'il fasse cette démarche en votre nom.' },
   { q:'Comment se passe le paiement ?', a:'Vous pouvez payer par MTN Mobile Money ou Orange Money au numéro 651495483 (Cameroun). Après paiement, envoyez votre reçu sur WhatsApp au +39 329 963 9430. Votre pack est activé dans les 2 heures. Le paiement échelonné est possible pour le Pack Standard et Premium.' },
-  { q:'Combien de temps prend la préparation du dossier ?', a:'Pack Starter : 5-7 jours. Pack Standard : 10-15 jours avec 30 jours de suivi. Pack Premium : préparation continue sur 90 jours avec relances et mises à jour. Plus vous commencez tôt avant le Click Day, meilleures sont vos chances.' },
+  { q:'Combien de temps prend la préparation du dossier ?', a:'Pack Starter : 5-7 jours pour finaliser le kit et envoyer 5 candidatures. Pack Standard : 10-15 jours pour préparer le dossier, ouvrir les plateformes utiles et lancer 15 candidatures. Pack Premium : traitement prioritaire, 30 candidatures et suivi prolongé.' },
 ]
 
 export default function Home() {
@@ -344,11 +347,11 @@ export default function Home() {
           </h1>
 
           <p style={{ fontSize:'18px', color:'#6B7280', lineHeight:'1.7', maxWidth:'600px', margin:'0 auto 16px' }}>
-            ItalianiPro prépare votre CV, vérifie vos documents et soumet votre candidature auprès de <strong>5 à 50+ employeurs italiens</strong> — avant que les quotas Flussi ne s'épuisent.
+            ItalianiPro prépare votre CV, vérifie vos documents et soumet votre candidature auprès de <strong>5 à 30 offres ciblées</strong> — avec un vrai suivi dossier par dossier.
           </p>
 
           <div style={{ background:'#EFF6FF', border:'1.5px solid #BFDBFE', borderRadius:'12px', padding:'12px 20px', display:'inline-block', marginBottom:'32px', fontSize:'14px', color:'#1E40AF', fontWeight:'600' }}>
-            💡 1 candidature = 2% de chances · 20 candidatures = 35% · 50+ candidatures = 65%+
+            💡 5 candidatures = démarrage cadré · 15 candidatures = campagne sérieuse · 30 candidatures = campagne intensive
           </div>
 
           <div style={{ display:'flex', gap:'12px', justifyContent:'center', flexWrap:'wrap' }}>
@@ -391,7 +394,7 @@ export default function Home() {
         <div style={{ display:'flex', gap:'40px', animation:'scroll 18s linear infinite', whiteSpace:'nowrap' }}>
           {[...Array(3)].map((_, i) => (
             <div key={i} style={{ display:'flex', gap:'40px', flexShrink:0 }}>
-              {['🇮🇹 Agriculture','🏨 Tourisme','🏗️ BTP','👴 Soins','🏭 Industrie','📱 MTN Mobile Money','🟠 Orange Money','⚡ CV en 5 jours','🎯 50+ employeurs'].map(t => (
+              {['🇮🇹 Agriculture','🏨 Tourisme','🏗️ BTP','👴 Soins','🏭 Industrie','📱 MTN Mobile Money','🟠 Orange Money','⚡ Kit final rapide','🎯 30 candidatures max'].map(t => (
                 <span key={t} style={{ color:'#9CA3AF', fontSize:'13px', fontWeight:'500' }}>{t}</span>
               ))}
             </div>
@@ -570,7 +573,7 @@ export default function Home() {
                   <span style={{ fontSize:'14px', color:'#9CA3AF' }}>XAF</span>
                 </div>
                 <div style={{ display:'inline-flex', alignItems:'center', gap:'6px', background:`${p.color}18`, color:p.color, fontSize:'12px', fontWeight:'700', padding:'4px 12px', borderRadius:'8px', marginBottom:'18px' }}>
-                  <Users size={13} /> {p.employers} employeurs ciblés
+                  <Users size={13} /> {p.employers} candidatures incluses
                 </div>
                 <ul style={{ listStyle:'none', padding:0, margin:'0 0 20px', display:'flex', flexDirection:'column', gap:'8px' }}>
                   {p.features.map(f => (
