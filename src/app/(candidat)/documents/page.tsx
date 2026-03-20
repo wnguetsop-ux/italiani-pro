@@ -1,52 +1,121 @@
 'use client'
-import { useState, useEffect, useCallback, useRef } from 'react'
+
+import { useCallback, useEffect, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
 import Link from 'next/link'
-import { db, auth, storage } from '@/lib/firebase'
-import { collection, query, where, getDocs, doc, updateDoc } from 'firebase/firestore'
-import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage'
-import { addDoc, serverTimestamp } from 'firebase/firestore'
-import { Upload, FileText, Download, Eye, RefreshCw, PenLine, X } from 'lucide-react'
+import { onAuthStateChanged } from 'firebase/auth'
+import { addDoc, collection, doc, getDocs, query, serverTimestamp, updateDoc, where } from 'firebase/firestore'
+import { getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage'
+import { Download, Eye, FileText, PenLine, RefreshCw, Upload, X } from 'lucide-react'
+import { auth, db, storage } from '@/lib/firebase'
+import { recordCandidateActivity } from '@/lib/backoffice-data'
 import { fmt_date, fmt_size } from '@/lib/utils'
 import { toast } from 'sonner'
-import { recordCandidateActivity, syncCandidateDerivedFields } from '@/lib/backoffice-data'
 
-interface Doc { id:string; nom:string; statut:string; file_url?:string; taille?:number; created_at:any; content_text?:string; type_doc?:string }
+interface Doc {
+  id: string
+  nom: string
+  statut: string
+  file_url?: string
+  taille?: number
+  created_at: any
+  content_text?: string
+  type_doc?: string
+}
 
 export default function DocumentsPage() {
-  const [docs, setDocs]         = useState<Doc[]>([])
-  const [loading, setLoading]   = useState(true)
+  const [uid, setUid] = useState<string | null>(auth.currentUser?.uid ?? null)
+  const [authReady, setAuthReady] = useState(Boolean(auth.currentUser))
+  const [docs, setDocs] = useState<Doc[]>([])
+  const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [progress, setProgress] = useState(0)
-  const [error, setError]       = useState<string|null>(null)
+  const [error, setError] = useState<string | null>(null)
 
-  const uid = auth.currentUser?.uid
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (user) => {
+      setUid(user?.uid ?? null)
+      setAuthReady(true)
+    })
+    return () => unsub()
+  }, [])
 
   const loadDocs = useCallback(async () => {
-    if (!uid) { setLoading(false); return }
+    if (!authReady) return
+    if (!uid) {
+      setDocs([])
+      setLoading(false)
+      return
+    }
+
     try {
-      const snap = await getDocs(query(collection(db, 'documents'), where('uid','==',uid)))
-      const list = snap.docs.map(d => ({ id:d.id, ...d.data() } as Doc))
-      list.sort((a,b) => (b.created_at?.seconds??0)-(a.created_at?.seconds??0))
+      const snap = await getDocs(query(collection(db, 'documents'), where('uid', '==', uid)))
+      const list = snap.docs.map((item) => ({ id: item.id, ...item.data() } as Doc))
+      list.sort((left, right) => (right.created_at?.seconds ?? 0) - (left.created_at?.seconds ?? 0))
       setDocs(list)
-    } catch (e) {
-      console.error('Docs load error:', e)
+    } catch (err) {
+      console.error('docs-load-error', err)
       setError('Erreur chargement documents')
     } finally {
       setLoading(false)
     }
-  }, [uid])
+  }, [authReady, uid])
 
-  useEffect(() => { loadDocs() }, [loadDocs])
+  useEffect(() => {
+    loadDocs()
+  }, [loadDocs])
+
+  const runPostUploadSync = useCallback((candidateId: string, description: string) => {
+    void (async () => {
+      const actorName = auth.currentUser?.displayName || 'Candidat'
+      const results = await Promise.allSettled([
+        updateDoc(doc(db, 'dossiers', candidateId), {
+          workflow_status: 'TO_REVIEW',
+          statut: 'en_verification',
+          next_action: 'Verifier les nouveaux documents recus',
+          next_action_at: serverTimestamp(),
+          updated_at: serverTimestamp(),
+        }),
+        recordCandidateActivity({
+          candidateId,
+          type: 'document_received',
+          title: 'Document recu',
+          description,
+          actorName,
+          actorRole: 'candidat',
+        }),
+      ])
+
+      for (const result of results) {
+        if (result.status === 'rejected') {
+          console.warn('post-upload-sync-warning', result.reason)
+        }
+      }
+    })()
+  }, [])
 
   const onDrop = useCallback(async (files: File[]) => {
-    if (!uid || !files[0] || uploading) return
-    const file = files[0]
+    if (!files[0] || uploading) return
+    if (!authReady) {
+      toast.error('Session en cours de chargement. Reessayez dans quelques secondes.')
+      return
+    }
+    if (!uid) {
+      toast.error('Session introuvable. Reconnectez-vous puis reessayez.')
+      return
+    }
 
-    // Validations
-    if (file.size > 15 * 1024 * 1024) { toast.error('Fichier trop lourd (max 15 Mo)'); return }
-    const allowed = ['application/pdf','image/jpeg','image/jpg','image/png','image/webp']
-    if (!allowed.includes(file.type)) { toast.error('Format non supporté (PDF, JPG, PNG)'); return }
+    const file = files[0]
+    if (file.size > 15 * 1024 * 1024) {
+      toast.error('Fichier trop lourd (max 15 Mo)')
+      return
+    }
+
+    const allowed = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png', 'image/webp']
+    if (!allowed.includes(file.type)) {
+      toast.error('Format non supporte (PDF, JPG, PNG)')
+      return
+    }
 
     setUploading(true)
     setProgress(0)
@@ -67,10 +136,10 @@ export default function DocumentsPage() {
             setProgress(pct)
           },
           (err) => {
-            console.error('Upload error:', err)
+            console.error('upload-task-error', err)
             reject(err)
           },
-          () => resolve()
+          () => resolve(),
         )
       })
 
@@ -78,88 +147,73 @@ export default function DocumentsPage() {
 
       await addDoc(collection(db, 'documents'), {
         uid,
-        nom:          file.name.replace(/\.[^.]+$/, ''),
+        nom: file.name.replace(/\.[^.]+$/, ''),
         original_name: file.name,
-        file_url:     downloadURL,
-        file_path:    filePath,
-        taille:       file.size,
-        mime_type:    file.type,
+        file_url: downloadURL,
+        file_path: filePath,
+        taille: file.size,
+        mime_type: file.type,
         workflow_status: 'RECEIVED',
         doc_type: 'other',
         source_language: '',
         translated_language: '',
         final_version: false,
-        statut:       'uploade',
-        received_at:  serverTimestamp(),
-        created_at:   serverTimestamp(),
-        updated_at:   serverTimestamp(),
-      })
-
-      toast.success('✅ Document uploadé avec succès !')
-      await updateDoc(doc(db, 'dossiers', uid), {
-        workflow_status: 'TO_REVIEW',
-        statut: 'en_verification',
-        next_action: 'Verifier les nouveaux documents recus',
-        next_action_at: serverTimestamp(),
+        statut: 'uploade',
+        received_at: serverTimestamp(),
+        created_at: serverTimestamp(),
         updated_at: serverTimestamp(),
       })
 
-      await recordCandidateActivity({
-        candidateId: uid,
-        type: 'document_received',
-        title: 'Document recu',
-        description: file.name,
-        actorName: auth.currentUser?.displayName || 'Candidat',
-        actorRole: 'candidat',
-      })
-
-      await syncCandidateDerivedFields(uid)
       await loadDocs()
-
+      toast.success('Document uploade avec succes')
+      runPostUploadSync(uid, file.name)
     } catch (err: any) {
-      console.error('Upload failed:', err)
+      console.error('upload-failed', err)
       const msg = err?.code === 'storage/unauthorized'
-        ? 'Erreur de permission. Vérifiez les règles Firebase Storage.'
+        ? 'Erreur de permission. Verifiez les regles Firebase Storage.'
         : err?.code === 'storage/retry-limit-exceeded'
-        ? 'Connexion trop lente. Réessayez.'
-        : 'Erreur upload. Réessayez.'
+        ? 'Connexion trop lente. Reessayez.'
+        : err?.code === 'storage/canceled'
+        ? 'Upload annule.'
+        : 'Erreur upload. Reessayez.'
       toast.error(msg)
       setError(msg)
     } finally {
       setUploading(false)
       setProgress(0)
     }
-  }, [uid, uploading, loadDocs])
+  }, [authReady, uid, uploading, loadDocs, runPostUploadSync])
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: { 'application/pdf':['.pdf'], 'image/*':['.jpg','.jpeg','.png','.webp'] },
-    maxSize: 15*1024*1024,
+    accept: { 'application/pdf': ['.pdf'], 'image/*': ['.jpg', '.jpeg', '.png', '.webp'] },
+    maxSize: 15 * 1024 * 1024,
     multiple: false,
     disabled: uploading,
   })
 
-  const approved = docs.filter(d => d.statut==='approuve').length
+  const approved = docs.filter((docItem) => docItem.statut === 'approuve').length
 
-  if (loading) return (
-    <div style={{ display:'flex', alignItems:'center', gap:'12px', padding:'40px', color:'#6B7280' }}>
-      <span className="spinner" /> Chargement...
-    </div>
-  )
+  if (loading || !authReady) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '40px', color: '#6B7280' }}>
+        <span className="spinner" /> Chargement...
+      </div>
+    )
+  }
 
   return (
-    <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
-
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:'10px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
         <div>
-          <h1 style={{ fontSize:'22px', fontWeight:'800', margin:'0 0 3px' }}>Mes documents</h1>
-          <p style={{ color:'#6B7280', fontSize:'13px', margin:0 }}>
-            {docs.length === 0 ? 'Aucun document' : `${approved}/${docs.length} approuvé${approved>1?'s':''}`}
+          <h1 style={{ fontSize: '22px', fontWeight: '800', margin: '0 0 3px' }}>Mes documents</h1>
+          <p style={{ color: '#6B7280', fontSize: '13px', margin: 0 }}>
+            {docs.length === 0 ? 'Aucun document' : `${approved}/${docs.length} approuve${approved > 1 ? 's' : ''}`}
           </p>
         </div>
-        <div style={{ display:'flex', gap:'8px' }}>
+        <div style={{ display: 'flex', gap: '8px' }}>
           <Link href="/documents/nouveau" className="btn btn-secondary btn-sm">
-            <PenLine size={14} /> Écrire / Coller
+            <PenLine size={14} /> Ecrire / Coller
           </Link>
           <button onClick={loadDocs} className="btn btn-secondary btn-icon btn-sm">
             <RefreshCw size={15} />
@@ -167,120 +221,139 @@ export default function DocumentsPage() {
         </div>
       </div>
 
-      {/* Progress bar si docs */}
       {docs.length > 0 && (
-        <div className="card" style={{ padding:'12px 16px' }}>
-          <div style={{ display:'flex', justifyContent:'space-between', fontSize:'13px', marginBottom:'6px' }}>
-            <span style={{ color:'#6B7280' }}>Documents validés</span>
-            <span style={{ fontWeight:'700', color:'#1B3A6B' }}>{Math.round(approved/docs.length*100)}%</span>
-          </div>
-          <div className="progress-track"><div className="progress-fill" style={{ width:`${Math.round(approved/docs.length*100)}%` }} /></div>
-        </div>
-      )}
-
-      {/* Zone upload */}
-      <div {...getRootProps()} style={{
-        border:`2px dashed ${isDragActive?'#1B3A6B':'#CBD5E1'}`,
-        borderRadius:'14px', padding:'28px 20px', textAlign:'center',
-        cursor: uploading?'not-allowed':'pointer',
-        background: isDragActive?'#EBF0FF':'white',
-        transition:'all 0.15s', opacity: uploading?0.7:1,
-      }}>
-        <input {...getInputProps()} />
-        <div style={{ width:'48px', height:'48px', background:'#EBF0FF', borderRadius:'12px', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 12px' }}>
-          <Upload size={22} color="#1B3A6B" />
-        </div>
-        <p style={{ fontWeight:'600', fontSize:'14px', color:'#374151', margin:'0 0 4px' }}>
-          {isDragActive ? 'Déposez ici' : uploading ? `Upload... ${progress}%` : 'Glissez un fichier ou cliquez ici'}
-        </p>
-        <p style={{ fontSize:'12px', color:'#9CA3AF', margin:0 }}>PDF, JPG, PNG — Max 15 Mo</p>
-      </div>
-
-      {/* Barre progress upload */}
-      {uploading && (
-        <div style={{ background:'#EFF6FF', border:'1px solid #BFDBFE', borderRadius:'10px', padding:'12px 14px' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:'8px', marginBottom:'8px' }}>
-            <span className="spinner" style={{ width:'16px', height:'16px', borderWidth:'2px' }} />
-            <span style={{ fontSize:'13px', fontWeight:'600', color:'#1D4ED8' }}>Upload en cours : {progress}%</span>
+        <div className="card" style={{ padding: '12px 16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '6px' }}>
+            <span style={{ color: '#6B7280' }}>Documents valides</span>
+            <span style={{ fontWeight: '700', color: '#1B3A6B' }}>{Math.round((approved / docs.length) * 100)}%</span>
           </div>
           <div className="progress-track">
-            <div className="progress-fill" style={{ width:`${progress}%`, background:'#2563EB' }} />
+            <div className="progress-fill" style={{ width: `${Math.round((approved / docs.length) * 100)}%` }} />
           </div>
         </div>
       )}
 
-      {/* Erreur */}
-      {error && (
-        <div style={{ background:'#FFF1F2', border:'1px solid #FECDD3', borderRadius:'10px', padding:'12px 14px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-          <span style={{ fontSize:'13px', color:'#BE123C' }}>{error}</span>
-          <button onClick={() => setError(null)} style={{ background:'none', border:'none', cursor:'pointer', color:'#BE123C' }}><X size={16} /></button>
+      <div
+        {...getRootProps()}
+        style={{
+          border: `2px dashed ${isDragActive ? '#1B3A6B' : '#CBD5E1'}`,
+          borderRadius: '14px',
+          padding: '28px 20px',
+          textAlign: 'center',
+          cursor: uploading ? 'not-allowed' : 'pointer',
+          background: isDragActive ? '#EBF0FF' : 'white',
+          transition: 'all 0.15s',
+          opacity: uploading ? 0.7 : 1,
+        }}
+      >
+        <input {...getInputProps()} />
+        <div style={{ width: '48px', height: '48px', background: '#EBF0FF', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
+          <Upload size={22} color="#1B3A6B" />
+        </div>
+        <p style={{ fontWeight: '600', fontSize: '14px', color: '#374151', margin: '0 0 4px' }}>
+          {isDragActive ? 'Deposez ici' : uploading ? `Upload... ${progress}%` : 'Glissez un fichier ou cliquez ici'}
+        </p>
+        <p style={{ fontSize: '12px', color: '#9CA3AF', margin: 0 }}>PDF, JPG, PNG - Max 15 Mo</p>
+      </div>
+
+      {uploading && (
+        <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: '10px', padding: '12px 14px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+            <span className="spinner" style={{ width: '16px', height: '16px', borderWidth: '2px' }} />
+            <span style={{ fontSize: '13px', fontWeight: '600', color: '#1D4ED8' }}>Upload en cours : {progress}%</span>
+          </div>
+          <div className="progress-track">
+            <div className="progress-fill" style={{ width: `${progress}%`, background: '#2563EB' }} />
+          </div>
         </div>
       )}
 
-      {/* Documents rejetés */}
-      {docs.filter(d=>d.statut==='rejete').map(d => (
-        <div key={d.id} style={{ background:'#FFF1F2', border:'1px solid #FECDD3', borderRadius:'10px', padding:'12px 14px', fontSize:'13px', color:'#9F1239' }}>
-          ❌ <strong>"{d.nom}"</strong> — Rejeté. Uploadez une nouvelle version corrigée ci-dessus.
+      {error && (
+        <div style={{ background: '#FFF1F2', border: '1px solid #FECDD3', borderRadius: '10px', padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: '13px', color: '#BE123C' }}>{error}</span>
+          <button onClick={() => setError(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BE123C' }}>
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
+      {docs.filter((docItem) => docItem.statut === 'rejete').map((docItem) => (
+        <div key={docItem.id} style={{ background: '#FFF1F2', border: '1px solid #FECDD3', borderRadius: '10px', padding: '12px 14px', fontSize: '13px', color: '#9F1239' }}>
+          <strong>{docItem.nom}</strong> - Rejete. Uploadez une nouvelle version corrigee ci-dessus.
         </div>
       ))}
 
-      {/* Liste */}
       {docs.length === 0 ? (
-        <div className="card" style={{ textAlign:'center', padding:'40px 20px' }}>
-          <div style={{ width:'52px', height:'52px', background:'#F3F4F6', borderRadius:'12px', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 12px' }}>
+        <div className="card" style={{ textAlign: 'center', padding: '40px 20px' }}>
+          <div style={{ width: '52px', height: '52px', background: '#F3F4F6', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
             <FileText size={24} color="#9CA3AF" />
           </div>
-          <h3 style={{ fontWeight:'700', fontSize:'15px', margin:'0 0 8px' }}>Aucun document encore</h3>
-          <p style={{ color:'#6B7280', fontSize:'13px', margin:'0 0 16px', lineHeight:'1.6' }}>
-            Uploadez un fichier ci-dessus ou utilisez "Écrire / Coller" si vous n'avez pas de scanner.
+          <h3 style={{ fontWeight: '700', fontSize: '15px', margin: '0 0 8px' }}>Aucun document encore</h3>
+          <p style={{ color: '#6B7280', fontSize: '13px', margin: '0 0 16px', lineHeight: '1.6' }}>
+            Uploadez un fichier ci-dessus ou utilisez "Ecrire / Coller" si vous n avez pas de scanner.
           </p>
           <Link href="/documents/nouveau" className="btn btn-primary btn-sm">
-            <PenLine size={14} /> Écrire / Coller mon contenu
+            <PenLine size={14} /> Ecrire / Coller mon contenu
           </Link>
         </div>
       ) : (
-        <div style={{ display:'flex', flexDirection:'column', gap:'8px' }}>
-          {docs.map(d => (
-            <div key={d.id} className="card" style={{ padding:'12px 14px', display:'flex', alignItems:'center', gap:'12px' }}>
-              <div style={{
-                width:'38px', height:'38px', borderRadius:'9px', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center',
-                background: d.content_text?'#F5F3FF':d.statut==='approuve'?'#F0FDF4':d.statut==='rejete'?'#FFF1F2':'#EFF6FF',
-              }}>
-                {d.content_text
-                  ? <PenLine size={17} color="#7C3AED" />
-                  : <FileText size={17} color={d.statut==='approuve'?'#22C55E':d.statut==='rejete'?'#EF4444':'#3B82F6'} />
-                }
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          {docs.map((docItem) => (
+            <div key={docItem.id} className="card" style={{ padding: '12px 14px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div
+                style={{
+                  width: '38px',
+                  height: '38px',
+                  borderRadius: '9px',
+                  flexShrink: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: docItem.content_text ? '#F5F3FF' : docItem.statut === 'approuve' ? '#F0FDF4' : docItem.statut === 'rejete' ? '#FFF1F2' : '#EFF6FF',
+                }}
+              >
+                {docItem.content_text ? (
+                  <PenLine size={17} color="#7C3AED" />
+                ) : (
+                  <FileText size={17} color={docItem.statut === 'approuve' ? '#22C55E' : docItem.statut === 'rejete' ? '#EF4444' : '#3B82F6'} />
+                )}
               </div>
-              <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ fontWeight:'600', fontSize:'14px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{d.nom || 'Document'}</div>
-                <div style={{ display:'flex', gap:'8px', marginTop:'3px', flexWrap:'wrap', alignItems:'center' }}>
-                  <span style={{ fontSize:'11px', fontWeight:'600', padding:'2px 8px', borderRadius:'99px',
-                    background: d.statut==='approuve'?'#F0FDF4':d.statut==='rejete'?'#FFF1F2':'#EFF6FF',
-                    color: d.statut==='approuve'?'#15803D':d.statut==='rejete'?'#BE123C':'#1D4ED8' }}>
-                    {d.statut==='approuve'?'✅ Approuvé':d.statut==='rejete'?'❌ Rejeté':d.statut==='en_verification'?'👁 En révision':'⏳ En attente'}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: '600', fontSize: '14px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{docItem.nom || 'Document'}</div>
+                <div style={{ display: 'flex', gap: '8px', marginTop: '3px', flexWrap: 'wrap', alignItems: 'center' }}>
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: '600',
+                      padding: '2px 8px',
+                      borderRadius: '99px',
+                      background: docItem.statut === 'approuve' ? '#F0FDF4' : docItem.statut === 'rejete' ? '#FFF1F2' : '#EFF6FF',
+                      color: docItem.statut === 'approuve' ? '#15803D' : docItem.statut === 'rejete' ? '#BE123C' : '#1D4ED8',
+                    }}
+                  >
+                    {docItem.statut === 'approuve' ? 'Approuve' : docItem.statut === 'rejete' ? 'Rejete' : docItem.statut === 'en_verification' ? 'En revision' : 'En attente'}
                   </span>
-                  {d.taille && <span style={{ fontSize:'11px', color:'#9CA3AF' }}>{fmt_size(d.taille)}</span>}
-                  {d.content_text && <span style={{ fontSize:'11px', color:'#7C3AED', fontStyle:'italic' }}>Texte écrit</span>}
+                  {docItem.taille ? <span style={{ fontSize: '11px', color: '#9CA3AF' }}>{fmt_size(docItem.taille)}</span> : null}
+                  {docItem.content_text ? <span style={{ fontSize: '11px', color: '#7C3AED', fontStyle: 'italic' }}>Texte ecrit</span> : null}
                 </div>
               </div>
-              {d.file_url && (
-                <div style={{ display:'flex', gap:'5px', flexShrink:0 }}>
-                  <a href={d.file_url} target="_blank" rel="noopener noreferrer"
-                    className="btn btn-secondary btn-icon btn-sm" title="Voir"><Eye size={14} /></a>
-                  <a href={d.file_url} download={d.nom}
-                    className="btn btn-secondary btn-icon btn-sm" title="Télécharger"><Download size={14} /></a>
+              {docItem.file_url ? (
+                <div style={{ display: 'flex', gap: '5px', flexShrink: 0 }}>
+                  <a href={docItem.file_url} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-icon btn-sm" title="Voir">
+                    <Eye size={14} />
+                  </a>
+                  <a href={docItem.file_url} download={docItem.nom} className="btn btn-secondary btn-icon btn-sm" title="Telecharger">
+                    <Download size={14} />
+                  </a>
                 </div>
-              )}
+              ) : null}
             </div>
           ))}
         </div>
       )}
 
-      {/* Note aide */}
-      <div style={{ background:'#EFF6FF', border:'1px solid #BFDBFE', borderRadius:'10px', padding:'12px 14px', fontSize:'12.5px', color:'#1E40AF' }}>
-        💡 <strong>Pas de scanner ?</strong> Utilisez{' '}
-        <Link href="/documents/nouveau" style={{ color:'#1D4ED8', fontWeight:'700' }}>Écrire / Coller</Link>
-        {' '}pour décrire votre CV ou vos expériences directement.
+      <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: '10px', padding: '12px 14px', fontSize: '12.5px', color: '#1E40AF' }}>
+        <strong>Pas de scanner ?</strong> Utilisez <Link href="/documents/nouveau" style={{ color: '#1D4ED8', fontWeight: '700' }}>Ecrire / Coller</Link> pour decrire votre CV ou vos experiences directement.
       </div>
     </div>
   )

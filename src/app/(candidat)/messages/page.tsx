@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { db, auth } from '@/lib/firebase'
 import {
   collection, query, where, getDocs, addDoc,
-  orderBy, onSnapshot, serverTimestamp, doc, getDoc
+  orderBy, onSnapshot, serverTimestamp, doc, getDoc, updateDoc, increment
 } from 'firebase/firestore'
 import { Send, Loader2, MessageCircle } from 'lucide-react'
 import { relative_time } from '@/lib/utils'
@@ -46,7 +46,14 @@ export default function MessagesPage() {
 
         if (snap.empty) {
           const ref = await addDoc(collection(db, 'conversations'), {
-            uid, created_at: serverTimestamp()
+            uid,
+            created_at: serverTimestamp(),
+            updated_at: serverTimestamp(),
+            unread_admin_count: 0,
+            unread_candidate_count: 0,
+            last_message_at: null,
+            last_message_excerpt: '',
+            last_sender: '',
           })
           cid = ref.id
         } else {
@@ -54,6 +61,9 @@ export default function MessagesPage() {
         }
 
         setConvId(cid)
+        await updateDoc(doc(db, 'conversations', cid), {
+          unread_candidate_count: 0,
+        })
 
         // Écoute en temps réel — sans filtre complexe pour éviter l'index manquant
         const q = query(
@@ -107,6 +117,13 @@ export default function MessagesPage() {
         approuve:        true,
         lu_par:          [uid],
         created_at:      serverTimestamp(),
+      })
+      await updateDoc(doc(db, 'conversations', convId), {
+        updated_at: serverTimestamp(),
+        last_message_at: serverTimestamp(),
+        last_message_excerpt: tempText.slice(0, 120),
+        last_sender: 'candidat',
+        unread_admin_count: increment(1),
       })
       // Refocus input
       setTimeout(() => inputRef.current?.focus(), 50)

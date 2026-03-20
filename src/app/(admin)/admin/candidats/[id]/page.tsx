@@ -9,6 +9,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  increment,
   onSnapshot,
   orderBy,
   query,
@@ -231,6 +232,9 @@ export default function CandidateDetailPage() {
     const convSnap = await getDocs(query(collection(db, 'conversations'), where('uid', '==', id)))
     if (!convSnap.empty) {
       setConvId(convSnap.docs[0].id)
+      await updateDoc(doc(db, 'conversations', convSnap.docs[0].id), {
+        unread_admin_count: 0,
+      })
       return
     }
 
@@ -238,6 +242,11 @@ export default function CandidateDetailPage() {
       uid: id,
       created_at: serverTimestamp(),
       updated_at: serverTimestamp(),
+      unread_admin_count: 0,
+      unread_candidate_count: 0,
+      last_message_at: null,
+      last_message_excerpt: '',
+      last_sender: '',
     })
     setConvId(created.id)
   }, [id])
@@ -536,6 +545,14 @@ export default function CandidateDetailPage() {
         approuve: true,
         lu_par: [],
         created_at: serverTimestamp(),
+      })
+      await updateDoc(doc(db, 'conversations', convId), {
+        updated_at: serverTimestamp(),
+        last_message_at: serverTimestamp(),
+        last_message_excerpt: newMessage.trim().slice(0, 120),
+        last_sender: 'admin',
+        unread_admin_count: 0,
+        unread_candidate_count: increment(1),
       })
       await recordCandidateActivity({
         candidateId: id,

@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react'
 import { LayoutDashboard, Users, MessageCircle, CreditCard, Brain, Menu, X, LogOut, Calendar, ChevronRight, Send } from 'lucide-react'
 import { logout } from '@/lib/auth'
 import { db, auth } from '@/lib/firebase'
-import { doc, getDoc, collection, getDocs } from 'firebase/firestore'
+import { doc, getDoc, collection, getDocs, onSnapshot } from 'firebase/firestore'
 
 const NAV = [
   { href:'/admin',           icon:LayoutDashboard, label:'Dashboard',  exact:true  },
@@ -22,12 +22,18 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [open, setOpen]       = useState(false)
   const [adminName, setAdminName] = useState('')
   const [nbCandidats, setNbCandidats] = useState(0)
+  const [unreadMessages, setUnreadMessages] = useState(0)
 
   useEffect(() => {
     const uid = auth.currentUser?.uid
     if (!uid) return
     getDoc(doc(db, 'users', uid)).then(s => { if (s.exists()) setAdminName(s.data().full_name ?? '') })
     getDocs(collection(db, 'dossiers')).then(s => setNbCandidats(s.size))
+    const unsub = onSnapshot(collection(db, 'conversations'), (snapshot) => {
+      const total = snapshot.docs.reduce((sum, item) => sum + Number(item.data().unread_admin_count || 0), 0)
+      setUnreadMessages(total)
+    })
+    return () => unsub()
   }, [])
 
   const active = (href: string, exact: boolean) =>
@@ -74,6 +80,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               {item.label}
               {item.href === '/admin/candidats' && nbCandidats > 0 && (
                 <span style={{ marginLeft:'auto', background:'rgba(255,255,255,0.12)', color:'#D1D5DB', fontSize:'11px', fontWeight:'700', padding:'1px 7px', borderRadius:'10px' }}>{nbCandidats}</span>
+              )}
+              {item.href === '/admin/messages' && unreadMessages > 0 && (
+                <span style={{ marginLeft:'auto', background:'#EF4444', color:'white', fontSize:'11px', fontWeight:'700', padding:'1px 7px', borderRadius:'10px' }}>{unreadMessages}</span>
               )}
             </Link>
           ))}

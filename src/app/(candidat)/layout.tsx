@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react'
 import { LayoutDashboard, User, FolderOpen, MessageCircle, CreditCard, Calendar, Menu, X, LogOut, Bell } from 'lucide-react'
 import { logout } from '@/lib/auth'
 import { db, auth } from '@/lib/firebase'
-import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore'
+import { doc, getDoc, collection, query, where, onSnapshot } from 'firebase/firestore'
 
 const NAV = [
   { href:'/dashboard',          icon:LayoutDashboard, label:'Mon espace'     },
@@ -28,6 +28,11 @@ export default function CandidatLayout({ children }: { children: React.ReactNode
     getDoc(doc(db, 'users', uid)).then(s => {
       if (s.exists()) setUserName(s.data().full_name ?? '')
     })
+    const unsub = onSnapshot(query(collection(db, 'conversations'), where('uid', '==', uid)), (snapshot) => {
+      const total = snapshot.docs.reduce((sum, item) => sum + Number(item.data().unread_candidate_count || 0), 0)
+      setUnread(total)
+    })
+    return () => unsub()
   }, [])
 
   return (
