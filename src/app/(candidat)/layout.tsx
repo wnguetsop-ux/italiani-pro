@@ -1,11 +1,13 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { LayoutDashboard, User, FolderOpen, MessageCircle, CreditCard, Calendar, Menu, X, LogOut, Bell } from 'lucide-react'
 import { logout } from '@/lib/auth'
 import { db, auth } from '@/lib/firebase'
+import { onAuthStateChanged } from 'firebase/auth'
 import { doc, getDoc, collection, query, where, onSnapshot } from 'firebase/firestore'
+import { toast } from 'sonner'
 
 const NAV = [
   { href:'/dashboard',          icon:LayoutDashboard, label:'Mon espace'     },
@@ -19,21 +21,39 @@ const NAV = [
 export default function CandidatLayout({ children }: { children: React.ReactNode }) {
   const path = usePathname()
   const [open, setOpen]         = useState(false)
+  const [uid, setUid] = useState<string | null>(auth.currentUser?.uid ?? null)
   const [userName, setUserName] = useState('')
   const [unread, setUnread]     = useState(0)
+  const lastUnreadRef = useRef<number | null>(null)
 
   useEffect(() => {
-    const uid = auth.currentUser?.uid
+    const unsubAuth = onAuthStateChanged(auth, (user) => {
+      setUid(user?.uid ?? null)
+    })
+    return () => unsubAuth()
+  }, [])
+
+  useEffect(() => {
     if (!uid) return
+
     getDoc(doc(db, 'users', uid)).then(s => {
       if (s.exists()) setUserName(s.data().full_name ?? '')
     })
     const unsub = onSnapshot(query(collection(db, 'conversations'), where('uid', '==', uid)), (snapshot) => {
       const total = snapshot.docs.reduce((sum, item) => sum + Number(item.data().unread_candidate_count || 0), 0)
       setUnread(total)
+
+      if (lastUnreadRef.current !== null && total > lastUnreadRef.current) {
+        toast.info('Nouvelle reponse recue dans vos messages')
+      }
+
+      lastUnreadRef.current = total
     })
-    return () => unsub()
-  }, [])
+    return () => {
+      unsub()
+      lastUnreadRef.current = null
+    }
+  }, [uid])
 
   return (
     <div style={{ display:'flex', minHeight:'100vh', background:'#F8F9FC' }}>

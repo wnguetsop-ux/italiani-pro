@@ -1,11 +1,13 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { LayoutDashboard, Users, MessageCircle, CreditCard, Brain, Menu, X, LogOut, Calendar, ChevronRight, Send } from 'lucide-react'
 import { logout } from '@/lib/auth'
 import { db, auth } from '@/lib/firebase'
+import { onAuthStateChanged } from 'firebase/auth'
 import { doc, getDoc, collection, getDocs, onSnapshot } from 'firebase/firestore'
+import { toast } from 'sonner'
 
 const NAV = [
   { href:'/admin',           icon:LayoutDashboard, label:'Dashboard',  exact:true  },
@@ -20,21 +22,39 @@ const NAV = [
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const path = usePathname()
   const [open, setOpen]       = useState(false)
+  const [uid, setUid] = useState<string | null>(auth.currentUser?.uid ?? null)
   const [adminName, setAdminName] = useState('')
   const [nbCandidats, setNbCandidats] = useState(0)
   const [unreadMessages, setUnreadMessages] = useState(0)
+  const lastUnreadRef = useRef<number | null>(null)
 
   useEffect(() => {
-    const uid = auth.currentUser?.uid
+    const unsubAuth = onAuthStateChanged(auth, (user) => {
+      setUid(user?.uid ?? null)
+    })
+    return () => unsubAuth()
+  }, [])
+
+  useEffect(() => {
     if (!uid) return
+
     getDoc(doc(db, 'users', uid)).then(s => { if (s.exists()) setAdminName(s.data().full_name ?? '') })
     getDocs(collection(db, 'dossiers')).then(s => setNbCandidats(s.size))
     const unsub = onSnapshot(collection(db, 'conversations'), (snapshot) => {
       const total = snapshot.docs.reduce((sum, item) => sum + Number(item.data().unread_admin_count || 0), 0)
       setUnreadMessages(total)
+
+      if (lastUnreadRef.current !== null && total > lastUnreadRef.current) {
+        toast.info('Nouveau message candidat recu')
+      }
+
+      lastUnreadRef.current = total
     })
-    return () => unsub()
-  }, [])
+    return () => {
+      unsub()
+      lastUnreadRef.current = null
+    }
+  }, [uid])
 
   const active = (href: string, exact: boolean) =>
     exact ? path === href : path === href || path.startsWith(href + '/')

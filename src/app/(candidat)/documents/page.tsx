@@ -5,7 +5,7 @@ import { useDropzone } from 'react-dropzone'
 import Link from 'next/link'
 import { onAuthStateChanged } from 'firebase/auth'
 import { addDoc, collection, doc, getDocs, query, serverTimestamp, updateDoc, where } from 'firebase/firestore'
-import { getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage'
+import { getDownloadURL, ref, uploadBytes } from 'firebase/storage'
 import { Download, Eye, FileText, PenLine, RefreshCw, Upload, X } from 'lucide-react'
 import { auth, db, storage } from '@/lib/firebase'
 import { recordCandidateActivity } from '@/lib/backoffice-data'
@@ -21,6 +21,44 @@ interface Doc {
   created_at: any
   content_text?: string
   type_doc?: string
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number) {
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      reject(new Error('UPLOAD_TIMEOUT'))
+    }, timeoutMs)
+
+    promise.then(
+      (value) => {
+        window.clearTimeout(timer)
+        resolve(value)
+      },
+      (error) => {
+        window.clearTimeout(timer)
+        reject(error)
+      },
+    )
+  })
+}
+
+function withSoftTimeout<T>(promise: Promise<T>, timeoutMs: number) {
+  return new Promise<T | null>((resolve) => {
+    const timer = window.setTimeout(() => {
+      resolve(null)
+    }, timeoutMs)
+
+    promise.then(
+      (value) => {
+        window.clearTimeout(timer)
+        resolve(value)
+      },
+      () => {
+        window.clearTimeout(timer)
+        resolve(null)
+      },
+    )
+  })
 }
 
 export default function DocumentsPage() {
@@ -110,6 +148,10 @@ export default function DocumentsPage() {
       toast.error('Fichier trop lourd (max 15 Mo)')
       return
     }
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      toast.error('Aucune connexion internet detectee.')
+      return
+    }
 
     const allowed = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png', 'image/webp']
     if (!allowed.includes(file.type)) {
@@ -126,26 +168,19 @@ export default function DocumentsPage() {
       const filename = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`
       const filePath = `documents/${uid}/${filename}`
       const storageRef = ref(storage, filePath)
-      const uploadTask = uploadBytesResumable(storageRef, file)
+      setProgress(15)
 
-      await new Promise<void>((resolve, reject) => {
-        uploadTask.on(
-          'state_changed',
-          (snapshot) => {
-            const pct = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)
-            setProgress(pct)
-          },
-          (err) => {
-            console.error('upload-task-error', err)
-            reject(err)
-          },
-          () => resolve(),
-        )
-      })
+      const uploadSnapshot = await withTimeout(
+        uploadBytes(storageRef, file, { contentType: file.type || 'application/octet-stream' }),
+        45000,
+      )
 
-      const downloadURL = await getDownloadURL(uploadTask.snapshot.ref)
+      setProgress(75)
+      const downloadURLPromise = getDownloadURL(uploadSnapshot.ref)
+      const downloadURL = await withSoftTimeout(downloadURLPromise, 8000)
+      setProgress(90)
 
-      await addDoc(collection(db, 'documents'), {
+      const docRef = await addDoc(collection(db, 'documents'), {
         uid,
         nom: file.name.replace(/\.[^.]+$/, ''),
         original_name: file.name,
@@ -164,12 +199,46 @@ export default function DocumentsPage() {
         updated_at: serverTimestamp(),
       })
 
-      await loadDocs()
-      toast.success('Document uploade avec succes')
+      setDocs((current) => {
+        const optimisticDoc: Doc = {
+          id: docRef.id,
+          nom: file.name.replace(/\.[^.]+$/, ''),
+          statut: 'uploade',
+          file_url: downloadURL ?? undefined,
+          taille: file.size,
+          created_at: { seconds: Math.floor(Date.now() / 1000) },
+          type_doc: 'other',
+        }
+        return [optimisticDoc, ...current.filter((item) => item.id !== docRef.id)]
+      })
+
+      setProgress(100)
+      toast.success(downloadURL ? 'Document uploade avec succes' : 'Document uploade. Finalisation en cours...')
+
+      if (!downloadURL) {
+        void downloadURLPromise.then(async (resolvedUrl) => {
+          try {
+            await updateDoc(doc(db, 'documents', docRef.id), {
+              file_url: resolvedUrl,
+              updated_at: serverTimestamp(),
+            })
+            await loadDocs()
+          } catch (syncError) {
+            console.warn('document-url-sync-warning', syncError)
+          }
+        }).catch((urlError) => {
+          console.warn('download-url-warning', urlError)
+        })
+      } else {
+        void loadDocs()
+      }
+
       runPostUploadSync(uid, file.name)
     } catch (err: any) {
       console.error('upload-failed', err)
-      const msg = err?.code === 'storage/unauthorized'
+      const msg = err?.message === 'UPLOAD_TIMEOUT'
+        ? 'Upload trop long. Verifiez la connexion ou les regles Firebase Storage.'
+        : err?.code === 'storage/unauthorized'
         ? 'Erreur de permission. Verifiez les regles Firebase Storage.'
         : err?.code === 'storage/retry-limit-exceeded'
         ? 'Connexion trop lente. Reessayez.'

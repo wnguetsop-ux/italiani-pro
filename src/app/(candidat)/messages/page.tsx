@@ -125,6 +125,7 @@ export default function MessagesPage() {
         last_sender: 'candidat',
         unread_admin_count: increment(1),
       })
+      toast.success('Message recu. L equipe a bien ete notifiee.')
       // Refocus input
       setTimeout(() => inputRef.current?.focus(), 50)
     } catch (e) {
