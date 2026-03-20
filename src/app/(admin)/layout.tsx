@@ -2,7 +2,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useState, useEffect } from 'react'
-import { LayoutDashboard, Users, MessageCircle, CreditCard, Brain, Menu, X, LogOut, Calendar, ChevronRight } from 'lucide-react'
+import { LayoutDashboard, Users, MessageCircle, CreditCard, Brain, Menu, X, LogOut, Calendar, ChevronRight, Send } from 'lucide-react'
 import { logout } from '@/lib/auth'
 import { db, auth } from '@/lib/firebase'
 import { doc, getDoc, collection, getDocs } from 'firebase/firestore'
@@ -10,6 +10,7 @@ import { doc, getDoc, collection, getDocs } from 'firebase/firestore'
 const NAV = [
   { href:'/admin',           icon:LayoutDashboard, label:'Dashboard',  exact:true  },
   { href:'/admin/candidats', icon:Users,           label:'Candidats',  exact:false },
+  { href:'/admin/candidatures', icon:Send,         label:'Candidatures', exact:false },
   { href:'/admin/messages',  icon:MessageCircle,   label:'Messages',   exact:false },
   { href:'/admin/paiements', icon:CreditCard,      label:'Paiements',  exact:false },
   { href:'/admin/ia',        icon:Brain,           label:'Agents IA',  exact:false },
