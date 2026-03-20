@@ -34,7 +34,7 @@ export const metadata: Metadata = {
   },
   appleWebApp: { capable: true, title: 'ItalianiPro', statusBarStyle: 'default' },
   icons: {
-    apple: '/icon-192.png',
+    apple: '/apple-touch-icon.png',
     icon: ['/icon-192.png', '/icon-512.png'],
   },
 }
@@ -51,7 +51,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="fr">
       <head>
-        <link rel="apple-touch-icon" href="/icon-192.png" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <meta name="apple-mobile-web-app-title" content="ItalianiPro" />
         <meta name="application-name" content="ItalianiPro" />
         <meta name="apple-mobile-web-app-capable" content="yes" />

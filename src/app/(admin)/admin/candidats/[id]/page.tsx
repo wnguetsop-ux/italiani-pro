@@ -194,6 +194,9 @@ function buildAiSource(candidate: CandidateRecord, document: CandidateDocument |
     candidate.dossier.availability ? `Disponibilite: ${String(candidate.dossier.availability)}` : '',
     candidate.dossier.italy_motivation ? `Motivation Italie:\n${String(candidate.dossier.italy_motivation)}` : '',
     effectiveDocumentText ? `Contenu du document selectionne:\n${effectiveDocumentText}` : '',
+    !effectiveDocumentText && document && (document.file_url || document.file_path)
+      ? 'Contenu du document selectionne: extraction automatique en attente ou indisponible.'
+      : '',
   ]
 
   return sections.filter(Boolean).join('\n\n')
@@ -524,7 +527,7 @@ export default function CandidateDetailPage() {
         !options?.skipExtraction &&
         !sourceDocument.generated_by_ai &&
         !sourceDocument.content_text?.trim() &&
-        Boolean(sourceDocument.file_url)
+        Boolean(sourceDocument.file_url || sourceDocument.file_path)
 
       setSelectedDocumentId(sourceDocument.id)
       if (openTab) setTab('ia')

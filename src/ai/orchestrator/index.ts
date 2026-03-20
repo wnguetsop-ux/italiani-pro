@@ -3,7 +3,8 @@
 // Point d'entrée unique pour déclencher les agents
 // ============================================================
 
-import { adminDb } from '@/lib/admin'
+import OpenAI, { toFile } from 'openai'
+import { adminDb, adminStorage } from '@/lib/admin'
 import { FieldValue } from 'firebase-admin/firestore'
 import { AGENT_REGISTRY } from '../agents'
 import { Events, saveAutoMessage } from '../events'
@@ -125,6 +126,7 @@ function buildCvSourceText(parts: Array<string | undefined | null>) {
 }
 
 type OrchestratorDocument = Record<string, unknown> & { id: string }
+const openaiClient = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null
 
 function isLikelyCvDocument(document: OrchestratorDocument) {
   const type = String(document.doc_type ?? document.type_doc ?? '').toLowerCase()
@@ -147,17 +149,63 @@ function pickBestSourceDocument(documents: OrchestratorDocument[], sourceDocumen
   )
 }
 
-async function extractDocumentTextFromFile(document: OrchestratorDocument) {
-  const fileUrl = typeof document.file_url === 'string' ? document.file_url : ''
-  if (!fileUrl || !process.env.OPENAI_API_KEY) return ''
+function inferDocumentFilename(document: OrchestratorDocument) {
+  const original = String(document.original_name ?? document.nom ?? '').trim()
+  if (original) return original
 
-  const res = await fetch('https://api.openai.com/v1/responses', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-    },
-    body: JSON.stringify({
+  const type = String(document.doc_type ?? document.type_doc ?? 'document').toLowerCase()
+  const mime = String(document.mime_type ?? '').toLowerCase()
+  const extension =
+    mime === 'application/pdf'
+      ? 'pdf'
+      : mime === 'image/png'
+        ? 'png'
+        : mime === 'image/webp'
+          ? 'webp'
+          : mime === 'image/jpeg' || mime === 'image/jpg'
+            ? 'jpg'
+            : 'txt'
+
+  return `${type || 'document'}.${extension}`
+}
+
+async function downloadDocumentBinary(document: OrchestratorDocument) {
+  const filePath = typeof document.file_path === 'string' ? document.file_path.trim() : ''
+  const fileUrl = typeof document.file_url === 'string' ? document.file_url.trim() : ''
+
+  if (filePath) {
+    const [buffer] = await adminStorage().bucket().file(filePath).download()
+    return {
+      buffer,
+      filename: inferDocumentFilename(document),
+    }
+  }
+
+  if (fileUrl) {
+    const response = await fetch(fileUrl)
+    if (!response.ok) {
+      throw new Error(`Document download failed ${response.status}`)
+    }
+    return {
+      buffer: Buffer.from(await response.arrayBuffer()),
+      filename: inferDocumentFilename(document),
+    }
+  }
+
+  throw new Error('Missing file reference for document extraction')
+}
+
+async function extractDocumentTextFromFile(document: OrchestratorDocument) {
+  if (!openaiClient) return ''
+
+  const { buffer, filename } = await downloadDocumentBinary(document)
+  const uploadedFile = await openaiClient.files.create({
+    file: await toFile(buffer, filename),
+    purpose: 'user_data',
+  })
+
+  try {
+    const response = await openaiClient.responses.create({
       model: 'gpt-4o',
       input: [
         {
@@ -175,21 +223,17 @@ async function extractDocumentTextFromFile(document: OrchestratorDocument) {
             },
             {
               type: 'input_file',
-              file_url: fileUrl,
+              file_id: uploadedFile.id,
             },
           ],
         },
       ],
-    }),
-  })
+    })
 
-  if (!res.ok) {
-    const err = await res.text()
-    throw new Error(`OpenAI file extraction error ${res.status}: ${err}`)
+    return typeof response.output_text === 'string' ? response.output_text.trim() : ''
+  } finally {
+    await openaiClient.files.del(uploadedFile.id).catch(() => undefined)
   }
-
-  const data = await res.json()
-  return typeof data.output_text === 'string' ? data.output_text.trim() : ''
 }
 
 async function ensureDocumentText(document: OrchestratorDocument | null) {
