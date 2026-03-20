@@ -215,6 +215,22 @@ async function ensureDocumentText(document: OrchestratorDocument | null) {
   }
 }
 
+export async function extractCandidateDocumentText(candidateId: string, sourceDocumentId?: string) {
+  const docsSnap = await adminDb().collection('documents').where('uid', '==', candidateId).get()
+  const documents: OrchestratorDocument[] = docsSnap.docs.map((snapshot) => ({
+    id: snapshot.id,
+    ...(snapshot.data() as Record<string, unknown>),
+  }))
+  const selectedDocument = pickBestSourceDocument(documents, sourceDocumentId)
+  const extractedText = await ensureDocumentText(selectedDocument)
+
+  return {
+    sourceDocumentId: selectedDocument?.id ?? null,
+    sourceDocumentName: String(selectedDocument?.nom ?? selectedDocument?.original_name ?? ''),
+    contentText: extractedText,
+  }
+}
+
 function buildCvRenderPayload(candidateId: string, fullName: string, email: string, phone: string, country: string, dossier: Record<string, unknown>, output: any, lang: 'fr' | 'it') {
   const sections = Array.isArray(output.cvSections)
     ? output.cvSections
@@ -412,7 +428,12 @@ export async function generateCV(
 }
 
 // ── Générer Lettre de Motivation ──────────────────────────
-export async function generateCoverLetter(candidateId: string, adminUid: string, lang: 'fr' | 'it' | 'en' = 'fr', customNotes?: string) {
+export async function generateCoverLetter(
+  candidateId: string,
+  adminUid: string,
+  lang: 'fr' | 'it' | 'en' = 'fr',
+  options?: { customNotes?: string; sourceDocumentId?: string },
+) {
   const [profileSnap, userSnap, dossierSnap, ordersSnap, docsSnap] = await Promise.all([
     adminDb().collection('candidate_profiles').doc(candidateId).get(),
     adminDb().collection('users').doc(candidateId).get(),
@@ -430,7 +451,7 @@ export async function generateCoverLetter(candidateId: string, adminUid: string,
     id: snapshot.id,
     ...(snapshot.data() as Record<string, unknown>),
   }))
-  const selectedDocument = pickBestSourceDocument(documents)
+  const selectedDocument = pickBestSourceDocument(documents, options?.sourceDocumentId)
   const extractedSelectedText = await ensureDocumentText(selectedDocument)
   const packType = ordersSnap.empty ? dossier.pack ?? 'basic' : ordersSnap.docs[0].data().pack_type ?? dossier.pack ?? 'basic'
 
@@ -443,7 +464,7 @@ export async function generateCoverLetter(candidateId: string, adminUid: string,
     packType,
     lang,
     customNotes: buildCvSourceText([
-      customNotes,
+      options?.customNotes,
       extractedSelectedText ? `Texte utile du CV source:\n${extractedSelectedText}` : '',
       typeof dossier.italy_motivation === 'string' ? `Motivation Italie:\n${dossier.italy_motivation}` : '',
       typeof dossier.experiences === 'string' ? `Experience:\n${dossier.experiences}` : '',

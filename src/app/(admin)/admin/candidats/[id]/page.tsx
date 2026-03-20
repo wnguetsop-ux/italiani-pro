@@ -161,15 +161,39 @@ function looksLikeImage(document: CandidateDocument) {
   return Boolean(document.mime_type?.startsWith('image/'))
 }
 
-function buildAiSource(candidate: CandidateRecord, document: CandidateDocument | null) {
+function isLikelyCvSourceDocument(document: CandidateDocument | null | undefined) {
+  if (!document || document.generated_by_ai) return false
+  const type = String(document.doc_type || document.type_doc || '').toLowerCase()
+  const name = String(document.nom || document.original_name || '').toLowerCase()
+  return type === 'cv' || /cv|resume|curriculum/.test(name)
+}
+
+function pickPreferredSourceDocument(documents: CandidateDocument[]) {
+  return (
+    documents.find((document) => isLikelyCvSourceDocument(document) && Boolean(document.content_text?.trim())) ??
+    documents.find((document) => isLikelyCvSourceDocument(document) && Boolean(document.file_url)) ??
+    documents.find((document) => !document.generated_by_ai && Boolean(document.content_text?.trim())) ??
+    documents.find((document) => !document.generated_by_ai && Boolean(document.file_url)) ??
+    documents.find((document) => !document.generated_by_ai) ??
+    documents[0] ??
+    null
+  )
+}
+
+function buildAiSource(candidate: CandidateRecord, document: CandidateDocument | null, extractedDocumentText?: string) {
+  const effectiveDocumentText = extractedDocumentText?.trim() || document?.content_text?.trim() || ''
   const sections = [
     `Nom: ${candidate.fullName}`,
     `Metier vise: ${candidate.targetJob || candidate.dossier.profession || 'A preciser'}`,
     candidate.sector ? `Secteur cible: ${candidate.sector}` : '',
     candidate.preferredRegionItaly ? `Region Italie: ${candidate.preferredRegionItaly}` : '',
+    document ? `Document source: ${document.nom || document.original_name || document.doc_type || 'Document'}` : '',
     candidate.dossier.experiences ? `Experiences brutes:\n${String(candidate.dossier.experiences)}` : '',
     candidate.dossier.competences ? `Competences et formations:\n${String(candidate.dossier.competences)}` : '',
-    document?.content_text ? `Contenu du document selectionne:\n${document.content_text}` : '',
+    candidate.dossier.driving_license ? `Permis de conduire: ${String(candidate.dossier.driving_license)}` : '',
+    candidate.dossier.availability ? `Disponibilite: ${String(candidate.dossier.availability)}` : '',
+    candidate.dossier.italy_motivation ? `Motivation Italie:\n${String(candidate.dossier.italy_motivation)}` : '',
+    effectiveDocumentText ? `Contenu du document selectionne:\n${effectiveDocumentText}` : '',
   ]
 
   return sections.filter(Boolean).join('\n\n')
@@ -344,6 +368,7 @@ export default function CandidateDetailPage() {
   const [agentResults, setAgentResults] = useState<Record<string, any>>({})
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null)
   const [aiSourceText, setAiSourceText] = useState('')
+  const [loadingAiSource, setLoadingAiSource] = useState(false)
 
   const [planForm, setPlanForm] = useState<PlanFormState>({
     workflowStatus: 'NEW',
@@ -469,19 +494,104 @@ export default function CandidateDetailPage() {
   }, [convId])
 
   const candidate = workspace?.candidate ?? null
-  const selectedDocument = candidate?.documents.find((item) => item.id === selectedDocumentId) ?? candidate?.documents[0] ?? null
+  const selectedDocument =
+    candidate?.documents.find((item) => item.id === selectedDocumentId) ??
+    (candidate ? pickPreferredSourceDocument(candidate.documents) : null)
+
+  const syncDocumentTextLocally = useCallback((documentId: string, contentText: string) => {
+    if (!contentText.trim()) return
+    setWorkspace((current) => {
+      if (!current) return current
+      return {
+        ...current,
+        candidate: {
+          ...current.candidate,
+          documents: current.candidate.documents.map((document) =>
+            document.id === documentId ? { ...document, content_text: contentText } : document,
+          ),
+        },
+      }
+    })
+  }, [])
+
+  const loadDocumentIntoAi = useCallback(
+    async (sourceDocument: CandidateDocument, options?: { openTab?: boolean; silent?: boolean; skipExtraction?: boolean }) => {
+      if (!candidate) return
+
+      const openTab = options?.openTab !== false
+      const silent = options?.silent === true
+      const shouldTryExtraction =
+        !options?.skipExtraction &&
+        !sourceDocument.generated_by_ai &&
+        !sourceDocument.content_text?.trim() &&
+        Boolean(sourceDocument.file_url)
+
+      setSelectedDocumentId(sourceDocument.id)
+      if (openTab) setTab('ia')
+      setLoadingAiSource(true)
+
+      let extractedDocumentText = sourceDocument.content_text?.trim() || ''
+      try {
+        if (shouldTryExtraction) {
+          const token = window.document.cookie.match(/ip_token=([^;]+)/)?.[1] ?? ''
+          const response = await fetch('/api/ai/run', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              action: 'extract_document_text',
+              candidateId: id,
+              options: {
+                sourceDocumentId: sourceDocument.id,
+              },
+            }),
+          })
+          const data = await response.json()
+          if (!data.success) throw new Error(data.error || 'Extraction impossible')
+          extractedDocumentText = String(data.result?.contentText || '').trim()
+          if (extractedDocumentText) {
+            syncDocumentTextLocally(sourceDocument.id, extractedDocumentText)
+          }
+        }
+        const nextAiSource = buildAiSource(candidate, sourceDocument, extractedDocumentText)
+        setAiSourceText(nextAiSource)
+        if (!silent) {
+          toast.success(extractedDocumentText ? 'CV source charge et analyse pour l IA' : 'Document charge comme base de travail IA')
+        }
+        return nextAiSource
+      } catch (error: any) {
+        console.error('document-source-extraction-error', error)
+        if (!silent) {
+          toast.error(error?.message || 'Impossible de lire automatiquement le document source')
+        }
+        const fallbackAiSource = buildAiSource(candidate, sourceDocument)
+        setAiSourceText(fallbackAiSource)
+        return fallbackAiSource
+      } finally {
+        setLoadingAiSource(false)
+      }
+    },
+    [candidate, id, syncDocumentTextLocally],
+  )
 
   useEffect(() => {
     if (!candidate) return
 
+    const preferredDocument = pickPreferredSourceDocument(candidate.documents)
     if (!selectedDocumentId || !candidate.documents.some((item) => item.id === selectedDocumentId)) {
-      setSelectedDocumentId(candidate.documents[0]?.id ?? null)
+      setSelectedDocumentId(preferredDocument?.id ?? null)
     }
 
     if (!aiSourceText.trim()) {
-      setAiSourceText(buildAiSource(candidate, candidate.documents[0] ?? null))
+      if (preferredDocument) {
+        void loadDocumentIntoAi(preferredDocument, { openTab: false, silent: true })
+      } else {
+        setAiSourceText(buildAiSource(candidate, null))
+      }
     }
-  }, [candidate, selectedDocumentId, aiSourceText])
+  }, [candidate, selectedDocumentId, aiSourceText, loadDocumentIntoAi])
 
   const savePlan = async () => {
     if (!candidate) return
@@ -763,27 +873,25 @@ export default function CandidateDetailPage() {
     }
   }
 
-  const loadDocumentIntoAi = (document: CandidateDocument) => {
-    if (!candidate) return
-    setSelectedDocumentId(document.id)
-    setAiSourceText(buildAiSource(candidate, document))
-    setTab('ia')
-    toast.success('Document charge comme base de travail IA')
-  }
-
   const runAgent = async (agentId: string) => {
     setAgentLoading(agentId)
     try {
+      const effectiveSourceText =
+        (agentId.startsWith('generate_cv_') || agentId === 'generate_cover_letter') && selectedDocument
+          ? await loadDocumentIntoAi(selectedDocument, { openTab: false, silent: true })
+          : aiSourceText.trim()
+
       const token = document.cookie.match(/ip_token=([^;]+)/)?.[1] ?? ''
       const options = agentId.startsWith('generate_cv_')
         ? {
-            sourceText: aiSourceText.trim(),
+            sourceText: String(effectiveSourceText || aiSourceText).trim(),
             sourceDocumentId: selectedDocument?.id ?? undefined,
           }
         : agentId === 'generate_cover_letter'
           ? {
               lang: 'it',
-              customNotes: aiSourceText.trim(),
+              customNotes: String(effectiveSourceText || aiSourceText).trim(),
+              sourceDocumentId: selectedDocument?.id ?? undefined,
             }
           : {}
       const response = await fetch('/api/ai/run', {
@@ -1336,8 +1444,8 @@ export default function CandidateDetailPage() {
                         <button onClick={() => setSelectedDocumentId(document.id)} className="btn btn-secondary btn-sm">
                           <Eye size={14} /> Apercu
                         </button>
-                          <button onClick={() => loadDocumentIntoAi(document)} className="btn btn-secondary btn-sm">
-                          <Brain size={14} /> Adapter avec IA
+                        <button onClick={() => void loadDocumentIntoAi(document)} disabled={loadingAiSource} className="btn btn-secondary btn-sm">
+                          {loadingAiSource && selectedDocument?.id === document.id ? <><Loader2 size={14} style={{ animation:'spin 0.7s linear infinite' }} /> Analyse...</> : <><Brain size={14} /> Adapter avec IA</>}
                         </button>
                         {document.file_url ? (
                           <a href={document.file_url} download={buildDocumentDownloadName(candidate, document)} className="btn btn-secondary btn-sm">
@@ -1401,8 +1509,8 @@ export default function CandidateDetailPage() {
           <SectionCard
             title={selectedDocument ? `Apercu · ${selectedDocument.nom || 'Document'}` : 'Apercu du document'}
             action={selectedDocument ? (
-              <button onClick={() => loadDocumentIntoAi(selectedDocument)} className="btn btn-primary btn-sm">
-                <Brain size={14} /> Utiliser pour le CV IA
+              <button onClick={() => void loadDocumentIntoAi(selectedDocument)} disabled={loadingAiSource} className="btn btn-primary btn-sm">
+                {loadingAiSource ? <><Loader2 size={14} style={{ animation:'spin 0.7s linear infinite' }} /> Analyse...</> : <><Brain size={14} /> Utiliser pour le CV IA</>}
               </button>
             ) : undefined}
           >
@@ -1443,8 +1551,8 @@ export default function CandidateDetailPage() {
                       <Eye size={14} /> Ouvrir le fichier
                     </a>
                   )}
-                  <button onClick={() => setAiSourceText(buildAiSource(candidate, selectedDocument))} className="btn btn-secondary btn-sm">
-                    <Brain size={14} /> Charger la base IA
+                  <button onClick={() => void loadDocumentIntoAi(selectedDocument, { openTab: false })} disabled={loadingAiSource} className="btn btn-secondary btn-sm">
+                    {loadingAiSource ? <><Loader2 size={14} style={{ animation:'spin 0.7s linear infinite' }} /> Analyse...</> : <><Brain size={14} /> Charger la base IA</>}
                   </button>
                 </div>
               </div>
@@ -1631,11 +1739,17 @@ export default function CandidateDetailPage() {
             <div style={{ display:'flex', justifyContent:'space-between', gap:'10px', alignItems:'center', marginBottom:'8px', flexWrap:'wrap' }}>
               <label className="field-label" style={{ marginBottom:0 }}>Base de travail transmise a l IA</label>
               {selectedDocument && (
-                <button onClick={() => setAiSourceText(buildAiSource(candidate, selectedDocument))} className="btn btn-secondary btn-sm">
-                  <Brain size={14} /> Recharger depuis l apercu
+                <button onClick={() => void loadDocumentIntoAi(selectedDocument, { openTab: false })} disabled={loadingAiSource} className="btn btn-secondary btn-sm">
+                  {loadingAiSource ? <><Loader2 size={14} style={{ animation:'spin 0.7s linear infinite' }} /> Analyse du CV source...</> : <><Brain size={14} /> Recharger depuis l apercu</>}
                 </button>
               )}
             </div>
+            {selectedDocument && (
+              <div style={{ fontSize:'12px', color:'#6B7280', marginBottom:'8px', lineHeight:'1.6' }}>
+                Source active: {selectedDocument.nom || selectedDocument.original_name || 'Document'}.
+                {!selectedDocument.generated_by_ai ? ' Le systeme essaie aussi de lire automatiquement le fichier uploadé.' : ' Ce document est une version generee par l equipe.'}
+              </div>
+            )}
             <textarea
               value={aiSourceText}
               onChange={(event) => setAiSourceText(event.target.value)}

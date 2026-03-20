@@ -1,5 +1,5 @@
-const CACHE = 'ip-v3'
-const PRECACHE_URLS = ['/', '/login', '/register', '/flussi', '/offline.html', '/manifest.json', '/icon-192.png', '/icon-512.png']
+const CACHE = 'ip-v4'
+const PRECACHE_URLS = ['/', '/login', '/register', '/flussi', '/offline.html', '/manifest.json', '/icon-192.png', '/icon-512.png', '/opengraph-image', '/twitter-image']
 
 self.addEventListener('install', (event) => {
   event.waitUntil(

@@ -13,6 +13,21 @@
   "lang": "fr",
   "categories": ["business", "productivity", "utilities"],
   "prefer_related_applications": false,
+  "screenshots": [
+    {
+      "src": "/opengraph-image",
+      "sizes": "1200x630",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Presentation ItalianiPro"
+    },
+    {
+      "src": "/twitter-image",
+      "sizes": "1200x630",
+      "type": "image/png",
+      "label": "Workflow candidature ItalianiPro"
+    }
+  ],
   "icons": [
     {
       "src": "/icon-192.png",

@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyToken } from '@/lib/admin'
 import {
   analyzeProfile,
+  extractCandidateDocumentText,
   generateChecklist,
   generateCV,
   generateCoverLetter,
@@ -72,7 +73,17 @@ export async function POST(req: NextRequest) {
           candidateId,
           user.uid,
           (options.lang as 'fr'|'it'|'en') ?? 'fr',
-          options.customNotes as string | undefined
+          {
+            customNotes: options.customNotes as string | undefined,
+            sourceDocumentId: typeof options.sourceDocumentId === 'string' ? options.sourceDocumentId : undefined,
+          },
+        )
+        break
+
+      case 'extract_document_text':
+        result = await extractCandidateDocumentText(
+          candidateId,
+          typeof options.sourceDocumentId === 'string' ? options.sourceDocumentId : undefined,
         )
         break
 
