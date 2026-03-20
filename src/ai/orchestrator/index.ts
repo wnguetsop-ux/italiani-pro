@@ -106,33 +106,83 @@ export async function generateChecklist(candidateId: string, adminUid: string) {
 }
 
 // ── Générer CV ────────────────────────────────────────────
-export async function generateCV(candidateId: string, adminUid: string, lang: 'fr' | 'it' = 'fr') {
-  const profileSnap = await adminDb().collection('candidate_profiles').doc(candidateId).get()
-  const userSnap    = await adminDb().collection('users').doc(candidateId).get()
+function asStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean)
+  if (typeof value === 'string') {
+    return value
+      .split(/[\n,;]+/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+  }
+  return []
+}
 
-  if (!profileSnap.exists || !userSnap.exists) throw new Error('Candidate not found')
+function buildCvSourceText(parts: Array<string | undefined | null>) {
+  return parts
+    .map((part) => (typeof part === 'string' ? part.trim() : ''))
+    .filter(Boolean)
+    .join('\n\n')
+}
 
-  const p = profileSnap.data()!
-  const u = userSnap.data()!
+export async function generateCV(
+  candidateId: string,
+  adminUid: string,
+  lang: 'fr' | 'it' = 'fr',
+  options?: { sourceText?: string; sourceDocumentId?: string },
+) {
+  const [profileSnap, userSnap, dossierSnap, docsSnap] = await Promise.all([
+    adminDb().collection('candidate_profiles').doc(candidateId).get(),
+    adminDb().collection('users').doc(candidateId).get(),
+    adminDb().collection('dossiers').doc(candidateId).get(),
+    adminDb().collection('documents').where('uid', '==', candidateId).get(),
+  ])
+
+  if (!userSnap.exists) throw new Error('Candidate not found')
+
+  const profile = profileSnap.exists ? profileSnap.data()! : null
+  const user = userSnap.data()!
+  const dossier = dossierSnap.exists ? dossierSnap.data()! : {}
+  const documents: Array<Record<string, unknown> & { id: string }> = docsSnap.docs.map((snapshot) => ({
+    id: snapshot.id,
+    ...(snapshot.data() as Record<string, unknown>),
+  }))
+  const selectedDocument = options?.sourceDocumentId
+    ? documents.find((item) => item.id === options.sourceDocumentId)
+    : null
+
+  const documentsText = documents
+    .filter((item) => typeof item.content_text === 'string' && item.content_text.trim().length > 0)
+    .map((item) => `Document ${item.nom || item.original_name || item.doc_type || item.id}:\n${String(item.content_text).trim()}`)
+    .join('\n\n')
+
+  const rawExperiences = buildCvSourceText([
+    typeof profile?.raw_experiences === 'string' ? profile.raw_experiences : '',
+    typeof dossier.experiences === 'string' ? dossier.experiences : '',
+    typeof dossier.competences === 'string' ? `Competences et formations:\n${dossier.competences}` : '',
+    selectedDocument && typeof selectedDocument.content_text === 'string'
+      ? `Document source selectionne:\n${selectedDocument.content_text}`
+      : '',
+    documentsText ? `Autres textes disponibles du dossier:\n${documentsText}` : '',
+    options?.sourceText ? `Notes brutes ajoutees par l operateur:\n${options.sourceText}` : '',
+  ])
 
   const input: CVGeneratorInput = {
     candidateId,
-    fullName:        u.full_name ?? '',
-    profession:      p.profession ?? '',
-    experienceYears: p.experience_years ?? 0,
-    educationLevel:  p.education_level ?? '',
-    skills:          p.skills ?? [],
-    languages:       p.languages_spoken ?? [],
-    targetSector:    p.target_sector ?? '',
-    targetRegion:    p.target_region_italy ?? '',
-    rawExperiences:  p.raw_experiences,
+    fullName: user.full_name ?? '',
+    profession: profile?.profession ?? dossier.target_job ?? dossier.profession ?? '',
+    experienceYears: Number(profile?.experience_years ?? dossier.annees_experience ?? 0) || 0,
+    educationLevel: profile?.education_level ?? dossier.niveau_etudes ?? '',
+    skills: Array.isArray(profile?.skills) ? profile.skills : asStringArray(dossier.competences),
+    languages: Array.isArray(profile?.languages_spoken) ? profile.languages_spoken : asStringArray(dossier.langues),
+    targetSector: profile?.target_sector ?? dossier.secteur_cible ?? dossier.sector ?? '',
+    targetRegion: profile?.target_region_italy ?? dossier.region_italie ?? dossier.preferred_region_italy ?? '',
+    rawExperiences,
     lang,
   }
 
   const agent  = lang === 'it' ? AGENT_REGISTRY.agent_cv_it : AGENT_REGISTRY.agent_cv_fr
   const result = await agent.run(input, adminUid, 'manual')
 
-  // Sauvegarder le CV généré
   await adminDb().collection('cv_versions').add({
     candidate_id: candidateId,
     lang,
@@ -140,6 +190,8 @@ export async function generateCV(candidateId: string, adminUid: string, lang: 'f
     sections:     result.output.cvSections,
     keywords:     result.output.keywords,
     warnings:     result.output.warnings,
+    source_document_id: options?.sourceDocumentId ?? null,
+    source_excerpt: rawExperiences.slice(0, 5000),
     agent_run_id: result.runId,
     is_current:   true,
     created_by:   adminUid,

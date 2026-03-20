@@ -306,7 +306,7 @@ export default function Home() {
           <span style={{ fontWeight:'900', fontSize:'19px' }}>Italiani<span style={{ color:'#D4A017' }}>Pro</span></span>
         </div>
         <div style={{ display:'flex', gap:'8px', alignItems:'center' }}>
-          <a href="#packs" style={{ fontSize:'13px', fontWeight:'600', color:'#6B7280', textDecoration:'none', padding:'7px 12px', display:'none' }}>Tarifs</a>
+          <a href="#methode" style={{ fontSize:'13px', fontWeight:'600', color:'#6B7280', textDecoration:'none', padding:'7px 12px' }}>Comprendre le Flusso</a>
           <a href="https://wa.me/393299639430" target="_blank" rel="noopener noreferrer"
             style={{ fontSize:'13px', fontWeight:'700', color:'#059669', textDecoration:'none', padding:'8px 14px', background:'#F0FDF4', border:'1.5px solid #86EFAC', borderRadius:'9px', display:'flex', alignItems:'center', gap:'6px' }}>
             <span>💬</span> WhatsApp
@@ -359,6 +359,29 @@ export default function Home() {
       </section>
 
       {/* Bandeau défilant */}
+      <section style={{ padding:'0 20px 28px', background:'white' }}>
+        <div style={{ maxWidth:'780px', margin:'0 auto' }}>
+          <div style={{ background:'#F8FAFC', border:'1.5px solid #E2E8F0', borderRadius:'18px', padding:'18px 20px', textAlign:'left' }}>
+            <div style={{ display:'flex', justifyContent:'space-between', gap:'12px', alignItems:'flex-start', flexWrap:'wrap' }}>
+              <div>
+                <div style={{ fontSize:'12px', fontWeight:'800', color:'#1D4ED8', textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:'6px' }}>
+                  Grandes lignes du Flusso italien
+                </div>
+                <div style={{ fontSize:'16px', fontWeight:'800', color:'#0F172A', marginBottom:'6px' }}>
+                  4 idees a comprendre avant de lancer sa candidature
+                </div>
+                <div style={{ fontSize:'13px', color:'#64748B', lineHeight:'1.7' }}>
+                  1. L Italie ouvre des quotas. 2. Les employeurs soumettent leurs demandes au Click Day. 3. Il faut etre pret avant cette date. 4. Plus votre dossier est professionnel et diffuse, plus vos chances augmentent.
+                </div>
+              </div>
+              <a href="#methode" style={{ display:'inline-flex', alignItems:'center', gap:'8px', background:'#1B3A6B', color:'white', textDecoration:'none', padding:'11px 16px', borderRadius:'10px', fontWeight:'700', fontSize:'13px' }}>
+                Lire le guide <ArrowRight size={15} />
+              </a>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <div style={{ background:'#111827', padding:'12px 0', overflow:'hidden' }}>
         <div style={{ display:'flex', gap:'40px', animation:'scroll 18s linear infinite', whiteSpace:'nowrap' }}>
           {[...Array(3)].map((_, i) => (

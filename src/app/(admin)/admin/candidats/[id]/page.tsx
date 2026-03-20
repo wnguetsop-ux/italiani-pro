@@ -23,6 +23,7 @@ import {
   CheckCircle2,
   ClipboardList,
   Download,
+  Eye,
   Flame,
   Loader2,
   PlusCircle,
@@ -78,6 +79,7 @@ const AGENTS = [
 
 type Tab = 'pilotage' | 'documents' | 'candidatures' | 'messages' | 'ia'
 type CandidateWorkspace = Awaited<ReturnType<typeof loadCandidateWorkspace>>
+type CandidateDocument = CandidateRecord['documents'][number]
 
 interface PlanFormState {
   workflowStatus: CandidateStatus
@@ -144,6 +146,28 @@ function inferNextStatusFromApplication(status: ApplicationStatus) {
   return null
 }
 
+function looksLikePdf(document: CandidateDocument) {
+  return document.mime_type === 'application/pdf' || document.file_url?.toLowerCase().includes('.pdf')
+}
+
+function looksLikeImage(document: CandidateDocument) {
+  return Boolean(document.mime_type?.startsWith('image/'))
+}
+
+function buildAiSource(candidate: CandidateRecord, document: CandidateDocument | null) {
+  const sections = [
+    `Nom: ${candidate.fullName}`,
+    `Metier vise: ${candidate.targetJob || candidate.dossier.profession || 'A preciser'}`,
+    candidate.sector ? `Secteur cible: ${candidate.sector}` : '',
+    candidate.preferredRegionItaly ? `Region Italie: ${candidate.preferredRegionItaly}` : '',
+    candidate.dossier.experiences ? `Experiences brutes:\n${String(candidate.dossier.experiences)}` : '',
+    candidate.dossier.competences ? `Competences et formations:\n${String(candidate.dossier.competences)}` : '',
+    document?.content_text ? `Contenu du document selectionne:\n${document.content_text}` : '',
+  ]
+
+  return sections.filter(Boolean).join('\n\n')
+}
+
 export default function CandidateDetailPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
@@ -165,6 +189,8 @@ export default function CandidateDetailPage() {
   const [adminName, setAdminName] = useState('Equipe ItalianiPro')
   const [agentLoading, setAgentLoading] = useState<string | null>(null)
   const [agentResults, setAgentResults] = useState<Record<string, any>>({})
+  const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null)
+  const [aiSourceText, setAiSourceText] = useState('')
 
   const [planForm, setPlanForm] = useState<PlanFormState>({
     workflowStatus: 'NEW',
@@ -290,6 +316,19 @@ export default function CandidateDetailPage() {
   }, [convId])
 
   const candidate = workspace?.candidate ?? null
+  const selectedDocument = candidate?.documents.find((item) => item.id === selectedDocumentId) ?? candidate?.documents[0] ?? null
+
+  useEffect(() => {
+    if (!candidate) return
+
+    if (!selectedDocumentId || !candidate.documents.some((item) => item.id === selectedDocumentId)) {
+      setSelectedDocumentId(candidate.documents[0]?.id ?? null)
+    }
+
+    if (!aiSourceText.trim()) {
+      setAiSourceText(buildAiSource(candidate, candidate.documents[0] ?? null))
+    }
+  }, [candidate, selectedDocumentId, aiSourceText])
 
   const savePlan = async () => {
     if (!candidate) return
@@ -571,17 +610,31 @@ export default function CandidateDetailPage() {
     }
   }
 
+  const loadDocumentIntoAi = (document: CandidateDocument) => {
+    if (!candidate) return
+    setSelectedDocumentId(document.id)
+    setAiSourceText(buildAiSource(candidate, document))
+    setTab('ia')
+    toast.success('Document charge comme base de travail IA')
+  }
+
   const runAgent = async (agentId: string) => {
     setAgentLoading(agentId)
     try {
       const token = document.cookie.match(/ip_token=([^;]+)/)?.[1] ?? ''
+      const options = agentId.startsWith('generate_cv_')
+        ? {
+            sourceText: aiSourceText.trim(),
+            sourceDocumentId: selectedDocument?.id ?? undefined,
+          }
+        : {}
       const response = await fetch('/api/ai/run', {
         method:'POST',
         headers: {
           'Content-Type':'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ action: agentId, candidateId: id, options: {} }),
+        body: JSON.stringify({ action: agentId, candidateId: id, options }),
       })
       const data = await response.json()
       if (!data.success) throw new Error(data.error || 'Erreur agent')
@@ -900,15 +953,17 @@ export default function CandidateDetailPage() {
       )}
 
       {tab === 'documents' && (
-        <SectionCard title={`Documents (${candidate.documents.length})`}>
-          {candidate.documents.length === 0 ? (
-            <div style={{ fontSize:'13px', color:'#6B7280' }}>Aucun document recu pour ce candidat.</div>
-          ) : (
-            <div style={{ display:'flex', flexDirection:'column', gap:'12px' }}>
-              {candidate.documents.map((document) => {
-                const draft = documentDrafts[document.id]
-                return (
-                  <div key={document.id} style={{ border:'1px solid #EEF2F7', borderRadius:'14px', padding:'14px' }}>
+        <div style={{ display:'flex', flexDirection:'column', gap:'14px' }}>
+          <SectionCard title={`Documents (${candidate.documents.length})`}>
+            {candidate.documents.length === 0 ? (
+              <div style={{ fontSize:'13px', color:'#6B7280' }}>Aucun document recu pour ce candidat.</div>
+            ) : (
+              <div style={{ display:'flex', flexDirection:'column', gap:'12px' }}>
+                {candidate.documents.map((document) => {
+                  const draft = documentDrafts[document.id]
+                  const isSelected = selectedDocument?.id === document.id
+                  return (
+                    <div key={document.id} style={{ border:`1.5px solid ${isSelected ? '#1B3A6B' : '#EEF2F7'}`, borderRadius:'14px', padding:'14px', background:isSelected ? '#FAFBFF' : 'white' }}>
                     <div style={{ display:'flex', justifyContent:'space-between', gap:'12px', flexWrap:'wrap', marginBottom:'10px' }}>
                       <div>
                         <div style={{ display:'flex', alignItems:'center', gap:'8px', flexWrap:'wrap' }}>
@@ -919,11 +974,19 @@ export default function CandidateDetailPage() {
                           {document.taille ? fmt_size(document.taille) : 'Texte'} · Recu le {fmt_date(document.created_at || document.received_at)}
                         </div>
                       </div>
-                      {document.file_url && (
-                        <a href={document.file_url} download={buildDocumentDownloadName(candidate, document)} className="btn btn-secondary btn-sm">
-                          <Download size={14} /> Export nomme
-                        </a>
-                      )}
+                      <div style={{ display:'flex', gap:'8px', flexWrap:'wrap' }}>
+                        <button onClick={() => setSelectedDocumentId(document.id)} className="btn btn-secondary btn-sm">
+                          <Eye size={14} /> Apercu
+                        </button>
+                          <button onClick={() => loadDocumentIntoAi(document)} className="btn btn-secondary btn-sm">
+                          <Brain size={14} /> Adapter avec IA
+                        </button>
+                        {document.file_url && (
+                          <a href={document.file_url} download={buildDocumentDownloadName(candidate, document)} className="btn btn-secondary btn-sm">
+                            <Download size={14} /> Export nomme
+                          </a>
+                        )}
+                      </div>
                     </div>
 
                     <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))', gap:'10px' }}>
@@ -966,12 +1029,62 @@ export default function CandidateDetailPage() {
                         {savingDocumentId === document.id ? <><Loader2 size={14} style={{ animation:'spin 0.7s linear infinite' }} /> Sauvegarde...</> : <><Save size={14} /> Sauvegarder</>}
                       </button>
                     </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </SectionCard>
+
+          <SectionCard
+            title={selectedDocument ? `Apercu · ${selectedDocument.nom || 'Document'}` : 'Apercu du document'}
+            action={selectedDocument ? (
+              <button onClick={() => loadDocumentIntoAi(selectedDocument)} className="btn btn-primary btn-sm">
+                <Brain size={14} /> Utiliser pour le CV IA
+              </button>
+            ) : undefined}
+          >
+            {!selectedDocument ? (
+              <div style={{ fontSize:'13px', color:'#6B7280' }}>Selectionnez un document puis cliquez sur Apercu.</div>
+            ) : (
+              <div style={{ display:'flex', flexDirection:'column', gap:'12px' }}>
+                <div style={{ fontSize:'12px', color:'#6B7280', lineHeight:'1.6' }}>
+                  {selectedDocument.doc_type || selectedDocument.type_doc || 'Document'} · {selectedDocument.source_language || 'langue source non precisee'}
+                  {selectedDocument.translated_language ? ` · traduction ${selectedDocument.translated_language}` : ''}
+                </div>
+
+                {selectedDocument.content_text ? (
+                  <pre style={{ margin:0, background:'#F9FAFB', border:'1px solid #E5E7EB', borderRadius:'12px', padding:'14px', whiteSpace:'pre-wrap', wordBreak:'break-word', fontSize:'12px', lineHeight:'1.7', maxHeight:'520px', overflowY:'auto' }}>
+                    {selectedDocument.content_text}
+                  </pre>
+                ) : looksLikeImage(selectedDocument) && selectedDocument.file_url ? (
+                  <img src={selectedDocument.file_url} alt={selectedDocument.nom || 'Document'} style={{ width:'100%', borderRadius:'12px', border:'1px solid #E5E7EB', objectFit:'contain', maxHeight:'520px' }} />
+                ) : looksLikePdf(selectedDocument) && selectedDocument.file_url ? (
+                  <iframe src={selectedDocument.file_url} title={selectedDocument.nom || 'Document PDF'} style={{ width:'100%', height:'520px', border:'1px solid #E5E7EB', borderRadius:'12px', background:'white' }} />
+                ) : selectedDocument.file_url ? (
+                  <div style={{ background:'#F9FAFB', border:'1px dashed #CBD5E1', borderRadius:'12px', padding:'16px', fontSize:'13px', color:'#475569' }}>
+                    Apercu integre non disponible pour ce format. Ouvrez le fichier dans un nouvel onglet puis revenez lancer l IA.
                   </div>
-                )
-              })}
-            </div>
-          )}
-        </SectionCard>
+                ) : (
+                  <div style={{ background:'#F9FAFB', border:'1px dashed #CBD5E1', borderRadius:'12px', padding:'16px', fontSize:'13px', color:'#475569' }}>
+                    Ce document n a pas de fichier joint, seulement des metadonnees.
+                  </div>
+                )}
+
+                <div style={{ display:'flex', gap:'8px', flexWrap:'wrap' }}>
+                  {selectedDocument.file_url && (
+                    <a href={selectedDocument.file_url} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-sm">
+                      <Eye size={14} /> Ouvrir le fichier
+                    </a>
+                  )}
+                  <button onClick={() => setAiSourceText(buildAiSource(candidate, selectedDocument))} className="btn btn-secondary btn-sm">
+                    <Brain size={14} /> Charger la base IA
+                  </button>
+                </div>
+              </div>
+            )}
+          </SectionCard>
+        </div>
       )}
 
       {tab === 'candidatures' && (
@@ -1139,6 +1252,32 @@ export default function CandidateDetailPage() {
 
       {tab === 'ia' && (
         <SectionCard title="Assistants IA">
+          <div style={{ background:'#EFF6FF', border:'1px solid #BFDBFE', borderRadius:'12px', padding:'14px', marginBottom:'14px' }}>
+            <div style={{ fontSize:'13px', fontWeight:'800', color:'#1D4ED8', marginBottom:'6px' }}>
+              Workflow conseille pour un CV recu
+            </div>
+            <div style={{ fontSize:'12px', color:'#1E3A8A', lineHeight:'1.7' }}>
+              1. Ouvrez le document dans l onglet Documents. 2. Cliquez sur "Adapter avec IA". 3. Relisez ou completez la base ci-dessous. 4. Lancez le CV FR puis le CV IT. 5. Telechargez le resultat final pour classer et postuler.
+            </div>
+          </div>
+
+          <div style={{ marginBottom:'14px' }}>
+            <div style={{ display:'flex', justifyContent:'space-between', gap:'10px', alignItems:'center', marginBottom:'8px', flexWrap:'wrap' }}>
+              <label className="field-label" style={{ marginBottom:0 }}>Base de travail transmise a l IA</label>
+              {selectedDocument && (
+                <button onClick={() => setAiSourceText(buildAiSource(candidate, selectedDocument))} className="btn btn-secondary btn-sm">
+                  <Brain size={14} /> Recharger depuis l apercu
+                </button>
+              )}
+            </div>
+            <textarea
+              value={aiSourceText}
+              onChange={(event) => setAiSourceText(event.target.value)}
+              rows={10}
+              placeholder="Collez ici les elements lus dans le CV ou laissez la base chargee depuis le dossier."
+            />
+          </div>
+
           <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))', gap:'12px' }}>
             {AGENTS.map((agent) => {
               const running = agentLoading === agent.id
@@ -1158,6 +1297,11 @@ export default function CandidateDetailPage() {
                     <div style={{ marginTop:'12px', background:'#F9FAFB', borderRadius:'10px', padding:'12px' }}>
                       {result.output.summaryFr && <div style={{ fontSize:'13px', color:'#374151', lineHeight:'1.6' }}>{result.output.summaryFr}</div>}
                       {result.output.suggestedAction && <div style={{ fontSize:'13px', color:'#374151', lineHeight:'1.6' }}>{result.output.suggestedAction}</div>}
+                      {result.output.cvText && (
+                        <pre style={{ margin:'10px 0 0', background:'white', border:'1px solid #E5E7EB', borderRadius:'10px', padding:'12px', whiteSpace:'pre-wrap', wordBreak:'break-word', fontSize:'12px', lineHeight:'1.7', maxHeight:'300px', overflowY:'auto' }}>
+                          {result.output.cvText}
+                        </pre>
+                      )}
                       {result.output.cvText && (
                         <div style={{ display:'flex', gap:'8px', marginTop:'10px' }}>
                           {agent.id === 'generate_cv_fr' && (

@@ -54,11 +54,17 @@ export async function POST(req: NextRequest) {
         break
 
       case 'generate_cv_fr':
-        result = await generateCV(candidateId, user.uid, 'fr')
+        result = await generateCV(candidateId, user.uid, 'fr', {
+          sourceText: typeof options.sourceText === 'string' ? options.sourceText : undefined,
+          sourceDocumentId: typeof options.sourceDocumentId === 'string' ? options.sourceDocumentId : undefined,
+        })
         break
 
       case 'generate_cv_it':
-        result = await generateCV(candidateId, user.uid, 'it')
+        result = await generateCV(candidateId, user.uid, 'it', {
+          sourceText: typeof options.sourceText === 'string' ? options.sourceText : undefined,
+          sourceDocumentId: typeof options.sourceDocumentId === 'string' ? options.sourceDocumentId : undefined,
+        })
         break
 
       case 'generate_cover_letter':
