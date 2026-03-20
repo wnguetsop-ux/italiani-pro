@@ -1,7 +1,6 @@
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, sendPasswordResetEmail } from 'firebase/auth'
-import { doc, setDoc, getDoc, serverTimestamp, addDoc, collection } from 'firebase/firestore'
+import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore'
 import { auth, db } from './firebase'
-import { buildDefaultChecklist } from './backoffice'
 
 const ADMIN_ROLES = ['admin', 'super_admin', 'agent']
 
@@ -33,42 +32,10 @@ export async function register(data: {
     created_at: serverTimestamp(), updated_at: serverTimestamp(),
   })
   await setDoc(doc(db, 'dossiers', uid), {
-    uid,
-    statut: 'nouveau',
-    workflow_status: 'NEW',
-    score_completion: 0,
-    dossier_completeness_percent: 0,
-    readiness_score: 0,
-    priority_score: 0,
-    is_urgent: false,
-    click_day_urgent: false,
-    secteur_cible: '',
-    region_italie: '',
-    profession: '',
-    target_job: '',
-    pack: '',
-    payment_status: '',
-    next_action: 'Verifier le profil et les premiers documents',
-    next_action_at: serverTimestamp(),
-    internal_notes: '',
-    checklists: buildDefaultChecklist(),
-    annees_experience: 0,
-    niveau_etudes: '',
-    langues: [],
-    created_at: serverTimestamp(),
-    updated_at: serverTimestamp(),
-  })
-  await addDoc(collection(db, 'activity_logs'), {
-    candidateId: uid,
-    uid,
-    type: 'candidate_registered',
-    title: 'Nouveau dossier cree',
-    description: 'Inscription du candidat et ouverture du dossier back-office.',
-    actorName: data.full_name,
-    actorRole: 'candidat',
-    metadata: { email: data.email, country: data.country ?? 'CM' },
-    created_at: serverTimestamp(),
-    createdAt: serverTimestamp(),
+    uid, statut: 'nouveau', score_completion: 0,
+    is_urgent: false, secteur_cible: '', region_italie: '',
+    profession: '', annees_experience: 0, niveau_etudes: '',
+    langues: [], created_at: serverTimestamp(), updated_at: serverTimestamp(),
   })
   const token = await cred.user.getIdToken()
   setCookies(token, 'candidat')
