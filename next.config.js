@@ -5,12 +5,7 @@ const nextConfig = {
       'firebase-admin',
       '@google-cloud/firestore',
       '@google-cloud/storage',
-    ],
-  },
-  images: {
-    remotePatterns: [
-      { protocol: 'https', hostname: 'storage.googleapis.com' },
-      { protocol: 'https', hostname: '*.firebasestorage.app' },
+      '@opentelemetry/sdk-trace-node',
     ],
   },
 }
