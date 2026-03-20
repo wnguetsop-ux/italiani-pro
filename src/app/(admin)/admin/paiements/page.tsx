@@ -38,7 +38,7 @@ export default function AdminPaiements() {
       setOrders(list)
 
       const cSnap = await getDocs(collection(db, 'users'))
-      setCandidates(cSnap.docs.map(d=>({uid:d.id,...d.data()})).filter(u=>u.role==='candidat'))
+      setCandidates(cSnap.docs.map(d=>({uid:d.id,...d.data()} as any)).filter((u:any)=>u.role==='candidat'))
     } catch (e) {
       console.error('loadOrders error:', e)
     } finally {
