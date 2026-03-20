@@ -1,1 +1,62 @@
-{"name":"ItalianiPro","short_name":"ItalianiPro","start_url":"/dashboard","display":"standalone","background_color":"#F8F9FC","theme_color":"#1B3A6B","icons":[{"src":"/icon-192.png","sizes":"192x192","type":"image/png","purpose":"any maskable"},{"src":"/icon-512.png","sizes":"512x512","type":"image/png","purpose":"any maskable"}],"lang":"fr"}
+{
+  "id": "/",
+  "name": "ItalianiPro",
+  "short_name": "ItalianiPro",
+  "description": "Preparation documentaire, CV, lettres et suivi de candidature pour travailler en Italie.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui", "browser"],
+  "orientation": "portrait",
+  "background_color": "#F8F9FC",
+  "theme_color": "#1B3A6B",
+  "lang": "fr",
+  "categories": ["business", "productivity", "utilities"],
+  "prefer_related_applications": false,
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Creer un espace",
+      "short_name": "Inscription",
+      "url": "/register",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Se connecter",
+      "short_name": "Connexion",
+      "url": "/login",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Comprendre le Flusso",
+      "short_name": "Flusso",
+      "url": "/flussi",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

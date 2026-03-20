@@ -739,6 +739,75 @@ export default function CandidateDetailPage() {
     URL.revokeObjectURL(url)
   }
 
+  const downloadPrintableHtmlFallback = (html: string, filename: string) => {
+    const blob = new Blob([html], { type:'text/html;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    link.click()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1200)
+  }
+
+  const openPrintableHtmlPreview = (html: string) => {
+    const blob = new Blob([html], { type:'text/html;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.target = '_blank'
+    link.rel = 'noopener noreferrer'
+    link.click()
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  }
+
+  const printHtmlDocument = (html: string, fallbackFilename: string) => {
+    const iframe = document.createElement('iframe')
+    iframe.style.position = 'fixed'
+    iframe.style.width = '0'
+    iframe.style.height = '0'
+    iframe.style.opacity = '0'
+    iframe.style.pointerEvents = 'none'
+    iframe.style.border = '0'
+    iframe.setAttribute('aria-hidden', 'true')
+    document.body.appendChild(iframe)
+
+    const cleanup = () => {
+      window.setTimeout(() => {
+        iframe.remove()
+      }, 1200)
+    }
+
+    const fallback = () => {
+      cleanup()
+      downloadPrintableHtmlFallback(html, fallbackFilename)
+      toast.message('Le PDF natif n a pas pu s ouvrir. Une version imprimable a ete telechargee.')
+    }
+
+    const frameWindow = iframe.contentWindow
+    const frameDocument = iframe.contentDocument || frameWindow?.document
+
+    if (!frameWindow || !frameDocument) {
+      fallback()
+      return
+    }
+
+    frameDocument.open()
+    frameDocument.write(html)
+    frameDocument.close()
+
+    window.setTimeout(() => {
+      try {
+        frameWindow.focus()
+        frameWindow.print()
+        toast.success('Boite d impression ouverte. Choisissez Enregistrer en PDF si besoin.')
+        cleanup()
+      } catch (error) {
+        console.error('print-html-error', error)
+        fallback()
+      }
+    }, 450)
+  }
+
   const openCvPreviewWindow = (language: 'fr' | 'it', printImmediately = false) => {
     if (!candidate) return
 
@@ -750,22 +819,14 @@ export default function CandidateDetailPage() {
       return
     }
 
-    const popup = window.open('', '_blank', 'noopener,noreferrer,width=1100,height=900')
-    if (!popup) {
-      toast.error('Autorisez les popups pour ouvrir l apercu PDF')
+    const html = buildCvPrintHtml(previewData)
+
+    if (printImmediately) {
+      printHtmlDocument(html, `${candidate.code}_${language.toUpperCase()}_CV.html`)
       return
     }
 
-    popup.document.open()
-    popup.document.write(buildCvPrintHtml(previewData))
-    popup.document.close()
-
-    if (printImmediately) {
-      window.setTimeout(() => {
-        popup.focus()
-        popup.print()
-      }, 350)
-    }
+    openPrintableHtmlPreview(html)
   }
 
   const openLetterPreviewWindow = (printImmediately = false) => {
@@ -779,22 +840,14 @@ export default function CandidateDetailPage() {
       return
     }
 
-    const popup = window.open('', '_blank', 'noopener,noreferrer,width=1100,height=900')
-    if (!popup) {
-      toast.error('Autorisez les popups pour ouvrir l apercu PDF')
+    const html = buildLetterPrintHtml(previewData)
+
+    if (printImmediately) {
+      printHtmlDocument(html, `${candidate.code}_IT_LETTRE.html`)
       return
     }
 
-    popup.document.open()
-    popup.document.write(buildLetterPrintHtml(previewData))
-    popup.document.close()
-
-    if (printImmediately) {
-      window.setTimeout(() => {
-        popup.focus()
-        popup.print()
-      }, 350)
-    }
+    openPrintableHtmlPreview(html)
   }
 
   if (loading || !candidate) {
