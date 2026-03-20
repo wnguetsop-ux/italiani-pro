@@ -204,23 +204,27 @@ export async function generateCV(
 
 // ── Générer Lettre de Motivation ──────────────────────────
 export async function generateCoverLetter(candidateId: string, adminUid: string, lang: 'fr' | 'it' | 'en' = 'fr', customNotes?: string) {
-  const profileSnap = await adminDb().collection('candidate_profiles').doc(candidateId).get()
-  const userSnap    = await adminDb().collection('users').doc(candidateId).get()
-  const ordersSnap  = await adminDb().collection('orders')
-    .where('candidate_id', '==', candidateId).limit(1).get()
+  const [profileSnap, userSnap, dossierSnap, ordersSnap] = await Promise.all([
+    adminDb().collection('candidate_profiles').doc(candidateId).get(),
+    adminDb().collection('users').doc(candidateId).get(),
+    adminDb().collection('dossiers').doc(candidateId).get(),
+    adminDb().collection('orders').where('candidate_id', '==', candidateId).limit(1).get(),
+  ])
 
-  if (!profileSnap.exists || !userSnap.exists) throw new Error('Candidate not found')
+  if (!userSnap.exists) throw new Error('Candidate not found')
 
-  const p = profileSnap.data()!
+  const p = profileSnap.exists ? profileSnap.data()! : null
   const u = userSnap.data()!
+  const dossier = dossierSnap.exists ? dossierSnap.data()! : {}
+  const packType = ordersSnap.empty ? dossier.pack ?? 'basic' : ordersSnap.docs[0].data().pack_type ?? dossier.pack ?? 'basic'
 
   const input: CoverLetterInput = {
     candidateId,
     fullName:      u.full_name ?? '',
-    profession:    p.profession ?? '',
-    targetSector:  p.target_sector ?? '',
-    targetRegion:  p.target_region_italy ?? '',
-    packType:      ordersSnap.empty ? 'basic' : ordersSnap.docs[0].data().pack_type,
+    profession:    p?.profession ?? dossier.target_job ?? dossier.profession ?? '',
+    targetSector:  p?.target_sector ?? dossier.secteur_cible ?? dossier.sector ?? '',
+    targetRegion:  p?.target_region_italy ?? dossier.region_italie ?? dossier.preferred_region_italy ?? '',
+    packType,
     lang,
     customNotes,
   }

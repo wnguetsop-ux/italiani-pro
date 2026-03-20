@@ -67,13 +67,20 @@ import {
   ScoreBar,
   SectionCard,
 } from '@/components/backoffice/BackofficeUi'
+import { AiStructuredOutput } from '@/components/backoffice/AiStructuredOutput'
+import { buildCvPrintHtml, CvProfessionalPreview, type CvRenderData } from '@/components/backoffice/CvProfessionalPreview'
+import {
+  buildLetterPrintHtml,
+  LetterProfessionalPreview,
+  type LetterRenderData,
+} from '@/components/backoffice/LetterProfessionalPreview'
 
 const AGENTS = [
   { id:'analyze_profile', label:'Analyser le profil', desc:'Forces, faiblesses et score de preparation' },
   { id:'generate_checklist', label:'Checklist documents', desc:'Pieces manquantes et prochaines actions' },
   { id:'generate_cv_fr', label:'Generer CV (FR)', desc:'Version francaise optimisee' },
   { id:'generate_cv_it', label:'Generer CV (IT)', desc:'Version italienne pour la candidature' },
-  { id:'generate_cover_letter', label:'Lettre de motivation', desc:'Lettre adaptee au secteur choisi' },
+  { id:'generate_cover_letter', label:'Lettre motivation (IT)', desc:'Version italienne exportable en PDF' },
   { id:'assist_admin', label:'Assistant admin', desc:'Synthese du dossier et action recommande' },
 ] as const
 
@@ -166,6 +173,54 @@ function buildAiSource(candidate: CandidateRecord, document: CandidateDocument |
   ]
 
   return sections.filter(Boolean).join('\n\n')
+}
+
+function buildCvPreviewData(candidate: CandidateRecord, output: any, language: 'fr' | 'it'): CvRenderData | null {
+  if (!output?.cvText) return null
+
+  const sections = Array.isArray(output.cvSections) && output.cvSections.length > 0
+    ? output.cvSections
+        .filter((section: any) => section && typeof section.title === 'string' && typeof section.content === 'string')
+        .map((section: any) => ({ title: String(section.title), content: String(section.content) }))
+    : [{ title: language === 'it' ? 'Curriculum' : 'CV', content: String(output.cvText) }]
+
+  const summarySection = sections.find((section: { title: string; content: string }) => /profil|profile|profilo/i.test(section.title))
+
+  return {
+    fullName: candidate.fullName,
+    title: String(output.suggestedTitle || candidate.targetJob || candidate.dossier.profession || 'Profil professionnel'),
+    email: candidate.email || '',
+    phone: candidate.whatsapp || '',
+    location: [candidate.preferredRegionItaly, candidate.country].filter(Boolean).join(' · '),
+    summary: summarySection?.content,
+    sections,
+    keywords: Array.isArray(output.keywords) ? output.keywords.map((item: unknown) => String(item)) : [],
+    lang: language,
+  }
+}
+
+function buildLetterPreviewData(candidate: CandidateRecord, output: any, language: 'fr' | 'it' | 'en'): LetterRenderData | null {
+  if (!output?.letterText) return null
+
+  const paragraphs = String(output.letterText)
+    .split(/\n\s*\n/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean)
+    .filter((paragraph) => paragraph !== output.salutation && paragraph !== output.closing && paragraph !== candidate.fullName)
+
+  return {
+    fullName: candidate.fullName,
+    title: String(output.suggestedTitle || candidate.targetJob || candidate.dossier.profession || 'Candidat ItalianiPro'),
+    email: candidate.email || '',
+    phone: candidate.whatsapp || '',
+    location: [candidate.preferredRegionItaly, candidate.country].filter(Boolean).join(' | '),
+    subject: typeof output.subject === 'string' ? output.subject : '',
+    salutation: typeof output.salutation === 'string' ? output.salutation : '',
+    bodyParagraphs: paragraphs.length ? paragraphs : [String(output.letterText)],
+    closing: typeof output.closing === 'string' ? output.closing : '',
+    signature: candidate.fullName,
+    lang: language,
+  }
 }
 
 export default function CandidateDetailPage() {
@@ -627,7 +682,12 @@ export default function CandidateDetailPage() {
             sourceText: aiSourceText.trim(),
             sourceDocumentId: selectedDocument?.id ?? undefined,
           }
-        : {}
+        : agentId === 'generate_cover_letter'
+          ? {
+              lang: 'it',
+              customNotes: aiSourceText.trim(),
+            }
+          : {}
       const response = await fetch('/api/ai/run', {
         method:'POST',
         headers: {
@@ -662,6 +722,79 @@ export default function CandidateDetailPage() {
     link.download = `${candidate.code}_${language.toUpperCase()}_CV.txt`
     link.click()
     URL.revokeObjectURL(url)
+  }
+
+  const downloadLetter = () => {
+    const letter = agentResults.generate_cover_letter?.output?.letterText
+    if (!letter || !candidate) {
+      toast.error('Generez d abord la lettre')
+      return
+    }
+    const blob = new Blob([letter], { type:'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${candidate.code}_IT_LETTRE.txt`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const openCvPreviewWindow = (language: 'fr' | 'it', printImmediately = false) => {
+    if (!candidate) return
+
+    const output = agentResults[`generate_cv_${language}`]?.output
+    const previewData = buildCvPreviewData(candidate, output, language)
+
+    if (!previewData) {
+      toast.error('Generez d abord le CV')
+      return
+    }
+
+    const popup = window.open('', '_blank', 'noopener,noreferrer,width=1100,height=900')
+    if (!popup) {
+      toast.error('Autorisez les popups pour ouvrir l apercu PDF')
+      return
+    }
+
+    popup.document.open()
+    popup.document.write(buildCvPrintHtml(previewData))
+    popup.document.close()
+
+    if (printImmediately) {
+      window.setTimeout(() => {
+        popup.focus()
+        popup.print()
+      }, 350)
+    }
+  }
+
+  const openLetterPreviewWindow = (printImmediately = false) => {
+    if (!candidate) return
+
+    const output = agentResults.generate_cover_letter?.output
+    const previewData = buildLetterPreviewData(candidate, output, 'it')
+
+    if (!previewData) {
+      toast.error('Generez d abord la lettre')
+      return
+    }
+
+    const popup = window.open('', '_blank', 'noopener,noreferrer,width=1100,height=900')
+    if (!popup) {
+      toast.error('Autorisez les popups pour ouvrir l apercu PDF')
+      return
+    }
+
+    popup.document.open()
+    popup.document.write(buildLetterPrintHtml(previewData))
+    popup.document.close()
+
+    if (printImmediately) {
+      window.setTimeout(() => {
+        popup.focus()
+        popup.print()
+      }, 350)
+    }
   }
 
   if (loading || !candidate) {
@@ -1254,10 +1387,10 @@ export default function CandidateDetailPage() {
         <SectionCard title="Assistants IA">
           <div style={{ background:'#EFF6FF', border:'1px solid #BFDBFE', borderRadius:'12px', padding:'14px', marginBottom:'14px' }}>
             <div style={{ fontSize:'13px', fontWeight:'800', color:'#1D4ED8', marginBottom:'6px' }}>
-              Workflow conseille pour un CV recu
+              Workflow conseille pour les documents recus
             </div>
             <div style={{ fontSize:'12px', color:'#1E3A8A', lineHeight:'1.7' }}>
-              1. Ouvrez le document dans l onglet Documents. 2. Cliquez sur "Adapter avec IA". 3. Relisez ou completez la base ci-dessous. 4. Lancez le CV FR puis le CV IT. 5. Telechargez le resultat final pour classer et postuler.
+              1. Ouvrez le document dans l onglet Documents. 2. Cliquez sur "Adapter avec IA". 3. Relisez ou completez la base ci-dessous. 4. Lancez le CV FR, le CV IT puis la lettre. 5. Exportez les PDF finaux pour classer et postuler.
             </div>
           </div>
 
@@ -1282,6 +1415,18 @@ export default function CandidateDetailPage() {
             {AGENTS.map((agent) => {
               const running = agentLoading === agent.id
               const result = agentResults[agent.id]
+              const cvLanguage = agent.id === 'generate_cv_fr' ? 'fr' : agent.id === 'generate_cv_it' ? 'it' : null
+              const cvPreviewData = candidate && cvLanguage && result?.output
+                ? buildCvPreviewData(candidate, result.output, cvLanguage)
+                : null
+              const letterPreviewData = candidate && agent.id === 'generate_cover_letter' && result?.output
+                ? buildLetterPreviewData(candidate, result.output, 'it')
+                : null
+              const structuredExcludeKeys = cvLanguage
+                ? ['cvText', 'cvSections']
+                : agent.id === 'generate_cover_letter'
+                  ? ['letterText', 'subject', 'salutation', 'closing']
+                  : []
               return (
                 <div key={agent.id} style={{ border:'1px solid #EEF2F7', borderRadius:'14px', padding:'14px' }}>
                   <div style={{ display:'flex', justifyContent:'space-between', gap:'10px', alignItems:'flex-start' }}>
@@ -1295,26 +1440,58 @@ export default function CandidateDetailPage() {
                   </div>
                   {result?.output && (
                     <div style={{ marginTop:'12px', background:'#F9FAFB', borderRadius:'10px', padding:'12px' }}>
-                      {result.output.summaryFr && <div style={{ fontSize:'13px', color:'#374151', lineHeight:'1.6' }}>{result.output.summaryFr}</div>}
-                      {result.output.suggestedAction && <div style={{ fontSize:'13px', color:'#374151', lineHeight:'1.6' }}>{result.output.suggestedAction}</div>}
-                      {result.output.cvText && (
-                        <pre style={{ margin:'10px 0 0', background:'white', border:'1px solid #E5E7EB', borderRadius:'10px', padding:'12px', whiteSpace:'pre-wrap', wordBreak:'break-word', fontSize:'12px', lineHeight:'1.7', maxHeight:'300px', overflowY:'auto' }}>
-                          {result.output.cvText}
-                        </pre>
-                      )}
-                      {result.output.cvText && (
-                        <div style={{ display:'flex', gap:'8px', marginTop:'10px' }}>
-                          {agent.id === 'generate_cv_fr' && (
-                            <button onClick={() => downloadCv('fr')} className="btn btn-primary btn-sm">
-                              <Download size={14} /> Telecharger FR
-                            </button>
-                          )}
-                          {agent.id === 'generate_cv_it' && (
-                            <button onClick={() => downloadCv('it')} className="btn btn-primary btn-sm">
-                              <Download size={14} /> Telecharger IT
-                            </button>
-                          )}
+                      {cvPreviewData && (
+                        <div style={{ marginTop:'12px' }}>
+                          <CvProfessionalPreview data={cvPreviewData} />
                         </div>
+                      )}
+                      {letterPreviewData && (
+                        <div style={{ marginTop:'12px' }}>
+                          <LetterProfessionalPreview data={letterPreviewData} />
+                        </div>
+                      )}
+                      {result.output.cvText && cvLanguage && (
+                        <div style={{ display:'flex', gap:'8px', marginTop:'10px', flexWrap:'wrap' }}>
+                          <button onClick={() => openCvPreviewWindow(cvLanguage, false)} className="btn btn-secondary btn-sm">
+                            <Eye size={14} /> Apercu pro
+                          </button>
+                          <button onClick={() => openCvPreviewWindow(cvLanguage, true)} className="btn btn-primary btn-sm">
+                            <Download size={14} /> Exporter PDF
+                          </button>
+                          <button onClick={() => downloadCv(cvLanguage)} className="btn btn-secondary btn-sm">
+                            <Download size={14} /> Texte brut
+                          </button>
+                        </div>
+                      )}
+                      {result.output.letterText && (
+                        <div style={{ display:'flex', gap:'8px', marginTop:'10px', flexWrap:'wrap' }}>
+                          <button onClick={() => openLetterPreviewWindow(false)} className="btn btn-secondary btn-sm">
+                            <Eye size={14} /> Apercu pro
+                          </button>
+                          <button onClick={() => openLetterPreviewWindow(true)} className="btn btn-primary btn-sm">
+                            <Download size={14} /> Exporter PDF
+                          </button>
+                          <button onClick={downloadLetter} className="btn btn-secondary btn-sm">
+                            <Download size={14} /> Texte brut
+                          </button>
+                        </div>
+                      )}
+                      <AiStructuredOutput output={result.output} excludeKeys={structuredExcludeKeys} />
+                      {result.output.cvText && (
+                        <details style={{ marginTop:'12px' }}>
+                          <summary style={{ cursor:'pointer', fontSize:'12px', fontWeight:'700', color:'#475569' }}>Voir la version texte brute</summary>
+                          <pre style={{ margin:'10px 0 0', background:'white', border:'1px solid #E5E7EB', borderRadius:'10px', padding:'12px', whiteSpace:'pre-wrap', wordBreak:'break-word', fontSize:'12px', lineHeight:'1.7', maxHeight:'260px', overflowY:'auto' }}>
+                            {result.output.cvText}
+                          </pre>
+                        </details>
+                      )}
+                      {result.output.letterText && (
+                        <details style={{ marginTop:'12px' }}>
+                          <summary style={{ cursor:'pointer', fontSize:'12px', fontWeight:'700', color:'#475569' }}>Voir la lettre en texte brut</summary>
+                          <pre style={{ margin:'10px 0 0', background:'white', border:'1px solid #E5E7EB', borderRadius:'10px', padding:'12px', whiteSpace:'pre-wrap', wordBreak:'break-word', fontSize:'12px', lineHeight:'1.7', maxHeight:'260px', overflowY:'auto' }}>
+                            {result.output.letterText}
+                          </pre>
+                        </details>
                       )}
                     </div>
                   )}
