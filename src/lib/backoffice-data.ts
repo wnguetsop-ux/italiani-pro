@@ -32,7 +32,7 @@ function groupByCandidateId<T extends { uid?: string; candidateId?: string }>(it
 }
 
 function toActivityLog(docId: string, data: Record<string, unknown>): ActivityLogDoc {
-  return { id: docId, ...(data as ActivityLogDoc) }
+  return { ...(data as ActivityLogDoc), id: docId }
 }
 
 export async function loadBackofficeIndex() {
@@ -57,8 +57,8 @@ export async function loadBackofficeIndex() {
     dossiersById.set(snapshot.id, snapshot.data() as CandidateDossierDoc)
   })
 
-  const documents = documentsSnap.docs.map((snapshot) => ({ id: snapshot.id, ...(snapshot.data() as CandidateDocumentDoc) }))
-  const applications = applicationsSnap.docs.map((snapshot) => ({ id: snapshot.id, ...(snapshot.data() as CandidateApplicationDoc) }))
+  const documents = documentsSnap.docs.map((snapshot) => ({ ...(snapshot.data() as CandidateDocumentDoc), id: snapshot.id }))
+  const applications = applicationsSnap.docs.map((snapshot) => ({ ...(snapshot.data() as CandidateApplicationDoc), id: snapshot.id }))
   const activities = activitiesSnap.docs.map((snapshot) => toActivityLog(snapshot.id, snapshot.data() as Record<string, unknown>))
 
   const documentsByCandidate = groupByCandidateId(documents)
@@ -98,8 +98,8 @@ export async function loadCandidateWorkspace(candidateId: string) {
 
   const user = userSnap.exists() ? (userSnap.data() as CandidateUserDoc) : null
   const dossier = dossierSnap.exists() ? (dossierSnap.data() as CandidateDossierDoc) : null
-  const documents = documentsSnap.docs.map((snapshot) => ({ id: snapshot.id, ...(snapshot.data() as CandidateDocumentDoc) }))
-  const applications = applicationsSnap.docs.map((snapshot) => ({ id: snapshot.id, ...(snapshot.data() as CandidateApplicationDoc) }))
+  const documents = documentsSnap.docs.map((snapshot) => ({ ...(snapshot.data() as CandidateDocumentDoc), id: snapshot.id }))
+  const applications = applicationsSnap.docs.map((snapshot) => ({ ...(snapshot.data() as CandidateApplicationDoc), id: snapshot.id }))
   const activities = activitiesSnap.docs.map((snapshot) => toActivityLog(snapshot.id, snapshot.data() as Record<string, unknown>))
 
   const candidate = normalizeCandidateRecord({
@@ -166,6 +166,10 @@ export async function createCandidateApplication(input: {
   notes?: string
   proofPath?: string
 }) {
+  const submittedAt = input.submittedAt ?? new Date()
+  const shouldTrackFollowUp = input.status !== 'POSITIVE' && input.status !== 'NEGATIVE'
+  const followUpAt = input.followUpAt ?? (shouldTrackFollowUp ? new Date(submittedAt.getTime() + 7 * 24 * 60 * 60 * 1000) : null)
+
   await addDoc(collection(db, 'applications'), {
     candidateId: input.candidateId,
     uid: input.candidateId,
@@ -173,9 +177,9 @@ export async function createCandidateApplication(input: {
     employer: input.employer,
     jobTitle: input.jobTitle,
     status: input.status ?? 'TO_SEND',
-    followUpAt: input.followUpAt ?? null,
+    followUpAt,
     lastContactAt: input.lastContactAt ?? null,
-    submittedAt: input.submittedAt ?? null,
+    submittedAt,
     result: input.result ?? '',
     notes: input.notes ?? '',
     proofPath: input.proofPath ?? '',

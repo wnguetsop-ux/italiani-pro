@@ -881,3 +881,290 @@ export default function CandidateDetailPage() {
           </div>
         </div>
       )}
+
+      {tab === 'documents' && (
+        <SectionCard title={`Documents (${candidate.documents.length})`}>
+          {candidate.documents.length === 0 ? (
+            <div style={{ fontSize:'13px', color:'#6B7280' }}>Aucun document recu pour ce candidat.</div>
+          ) : (
+            <div style={{ display:'flex', flexDirection:'column', gap:'12px' }}>
+              {candidate.documents.map((document) => {
+                const draft = documentDrafts[document.id]
+                return (
+                  <div key={document.id} style={{ border:'1px solid #EEF2F7', borderRadius:'14px', padding:'14px' }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', gap:'12px', flexWrap:'wrap', marginBottom:'10px' }}>
+                      <div>
+                        <div style={{ display:'flex', alignItems:'center', gap:'8px', flexWrap:'wrap' }}>
+                          <div style={{ fontSize:'14px', fontWeight:'800' }}>{document.nom || 'Document'}</div>
+                          <DocumentStatusPill status={draft.workflow_status} />
+                        </div>
+                        <div style={{ fontSize:'12px', color:'#6B7280', marginTop:'4px' }}>
+                          {document.taille ? fmt_size(document.taille) : 'Texte'} · Recu le {fmt_date(document.created_at || document.received_at)}
+                        </div>
+                      </div>
+                      {document.file_url && (
+                        <a href={document.file_url} download={buildDocumentDownloadName(candidate, document)} className="btn btn-secondary btn-sm">
+                          <Download size={14} /> Export nomme
+                        </a>
+                      )}
+                    </div>
+
+                    <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))', gap:'10px' }}>
+                      <div>
+                        <label className="field-label">Type</label>
+                        <select value={draft.doc_type} onChange={(event) => setDocumentDrafts((current) => ({ ...current, [document.id]: { ...current[document.id], doc_type: event.target.value } }))}>
+                          {DOCUMENT_TYPE_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="field-label">Statut documentaire</label>
+                        <select value={draft.workflow_status} onChange={(event) => setDocumentDrafts((current) => ({ ...current, [document.id]: { ...current[document.id], workflow_status: event.target.value as DocumentWorkflowStatus } }))}>
+                          {Object.entries(DOCUMENT_STATUS_LABELS).map(([value, label]) => (
+                            <option key={value} value={value}>{label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="field-label">Langue source</label>
+                        <input value={draft.source_language} onChange={(event) => setDocumentDrafts((current) => ({ ...current, [document.id]: { ...current[document.id], source_language: event.target.value } }))} placeholder="fr / en / it" />
+                      </div>
+                      <div>
+                        <label className="field-label">Langue traduite</label>
+                        <input value={draft.translated_language} onChange={(event) => setDocumentDrafts((current) => ({ ...current, [document.id]: { ...current[document.id], translated_language: event.target.value } }))} placeholder="it" />
+                      </div>
+                    </div>
+
+                    <label style={{ display:'inline-flex', alignItems:'center', gap:'8px', marginTop:'12px', fontSize:'13px' }}>
+                      <input type="checkbox" checked={draft.final_version} onChange={(event) => setDocumentDrafts((current) => ({ ...current, [document.id]: { ...current[document.id], final_version: event.target.checked } }))} />
+                      Version finale prete a classer / exporter
+                    </label>
+
+                    <div style={{ marginTop:'12px', display:'flex', justifyContent:'space-between', gap:'12px', alignItems:'center', flexWrap:'wrap' }}>
+                      <div style={{ fontSize:'12px', color:'#6B7280' }}>
+                        {document.content_text ? 'Document texte saisi dans l application.' : document.file_path || 'Fichier externe'}
+                      </div>
+                      <button onClick={() => saveDocument(document.id)} disabled={savingDocumentId === document.id} className="btn btn-primary btn-sm">
+                        {savingDocumentId === document.id ? <><Loader2 size={14} style={{ animation:'spin 0.7s linear infinite' }} /> Sauvegarde...</> : <><Save size={14} /> Sauvegarder</>}
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </SectionCard>
+      )}
+
+      {tab === 'candidatures' && (
+        <div style={{ display:'flex', flexDirection:'column', gap:'14px' }}>
+          <SectionCard title="Nouvelle candidature">
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))', gap:'10px' }}>
+              <div>
+                <label className="field-label">Plateforme</label>
+                <input value={newApplication.platform} onChange={(event) => setNewApplication((current) => ({ ...current, platform: event.target.value }))} placeholder="Indeed, Jooble, site employeur..." />
+              </div>
+              <div>
+                <label className="field-label">Employeur</label>
+                <input value={newApplication.employer} onChange={(event) => setNewApplication((current) => ({ ...current, employer: event.target.value }))} placeholder="Nom de l entreprise" />
+              </div>
+              <div>
+                <label className="field-label">Poste</label>
+                <input value={newApplication.jobTitle} onChange={(event) => setNewApplication((current) => ({ ...current, jobTitle: event.target.value }))} placeholder="Ouvrier agricole" />
+              </div>
+              <div>
+                <label className="field-label">Statut</label>
+                <select value={newApplication.status} onChange={(event) => setNewApplication((current) => ({ ...current, status: event.target.value as ApplicationStatus }))}>
+                  {Object.entries(APPLICATION_STATUS_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="field-label">Date d envoi</label>
+                <input type="date" value={newApplication.submittedAt} onChange={(event) => setNewApplication((current) => ({ ...current, submittedAt: event.target.value }))} />
+              </div>
+              <div>
+                <label className="field-label">Relance prevue</label>
+                <input type="date" value={newApplication.followUpAt} onChange={(event) => setNewApplication((current) => ({ ...current, followUpAt: event.target.value }))} />
+              </div>
+            </div>
+            <div style={{ marginTop:'10px' }}>
+              <label className="field-label">Notes</label>
+              <textarea value={newApplication.notes} onChange={(event) => setNewApplication((current) => ({ ...current, notes: event.target.value }))} rows={3} placeholder="Lien annonce, precision sur l envoi, contact RH..." />
+            </div>
+            <div style={{ display:'flex', justifyContent:'flex-end', marginTop:'12px' }}>
+              <button onClick={addApplication} disabled={creatingApplication} className="btn btn-primary btn-sm">
+                {creatingApplication ? <><Loader2 size={14} style={{ animation:'spin 0.7s linear infinite' }} /> Creation...</> : <><PlusCircle size={14} /> Ajouter la candidature</>}
+              </button>
+            </div>
+          </SectionCard>
+
+          <SectionCard title={`Suivi des candidatures (${candidate.applications.length})`}>
+            {candidate.applications.length === 0 ? (
+              <div style={{ fontSize:'13px', color:'#6B7280' }}>Aucune candidature enregistree pour ce candidat.</div>
+            ) : (
+              <div style={{ display:'flex', flexDirection:'column', gap:'12px' }}>
+                {candidate.applications.map((application) => {
+                  const draft = applicationDrafts[application.id]
+                  return (
+                    <div key={application.id} style={{ border:'1px solid #EEF2F7', borderRadius:'14px', padding:'14px' }}>
+                      <div style={{ display:'flex', justifyContent:'space-between', gap:'10px', flexWrap:'wrap', marginBottom:'10px' }}>
+                        <div>
+                          <div style={{ display:'flex', alignItems:'center', gap:'8px', flexWrap:'wrap' }}>
+                            <div style={{ fontSize:'14px', fontWeight:'800' }}>{draft.jobTitle || 'Poste a preciser'}</div>
+                            <ApplicationStatusPill status={draft.status} />
+                          </div>
+                          <div style={{ fontSize:'12px', color:'#6B7280', marginTop:'4px' }}>
+                            {draft.employer || 'Employeur non precise'} · {draft.platform || 'Plateforme non precise'}
+                          </div>
+                        </div>
+                        <div style={{ fontSize:'12px', color:'#6B7280' }}>
+                          Envoi: {draft.submittedAt ? fmt_date(parseDateInput(draft.submittedAt)) : 'non date'}
+                        </div>
+                      </div>
+
+                      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))', gap:'10px' }}>
+                        <div>
+                          <label className="field-label">Plateforme</label>
+                          <input value={draft.platform} onChange={(event) => setApplicationDrafts((current) => ({ ...current, [application.id]: { ...current[application.id], platform: event.target.value } }))} />
+                        </div>
+                        <div>
+                          <label className="field-label">Employeur</label>
+                          <input value={draft.employer} onChange={(event) => setApplicationDrafts((current) => ({ ...current, [application.id]: { ...current[application.id], employer: event.target.value } }))} />
+                        </div>
+                        <div>
+                          <label className="field-label">Poste</label>
+                          <input value={draft.jobTitle} onChange={(event) => setApplicationDrafts((current) => ({ ...current, [application.id]: { ...current[application.id], jobTitle: event.target.value } }))} />
+                        </div>
+                        <div>
+                          <label className="field-label">Statut</label>
+                          <select value={draft.status} onChange={(event) => setApplicationDrafts((current) => ({ ...current, [application.id]: { ...current[application.id], status: event.target.value as ApplicationStatus } }))}>
+                            {Object.entries(APPLICATION_STATUS_LABELS).map(([value, label]) => (
+                              <option key={value} value={value}>{label}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="field-label">Date d envoi</label>
+                          <input type="date" value={draft.submittedAt} onChange={(event) => setApplicationDrafts((current) => ({ ...current, [application.id]: { ...current[application.id], submittedAt: event.target.value } }))} />
+                        </div>
+                        <div>
+                          <label className="field-label">Relance prevue</label>
+                          <input type="date" value={draft.followUpAt} onChange={(event) => setApplicationDrafts((current) => ({ ...current, [application.id]: { ...current[application.id], followUpAt: event.target.value } }))} />
+                        </div>
+                        <div>
+                          <label className="field-label">Dernier contact</label>
+                          <input type="date" value={draft.lastContactAt} onChange={(event) => setApplicationDrafts((current) => ({ ...current, [application.id]: { ...current[application.id], lastContactAt: event.target.value } }))} />
+                        </div>
+                        <div>
+                          <label className="field-label">Resultat</label>
+                          <input value={draft.result} onChange={(event) => setApplicationDrafts((current) => ({ ...current, [application.id]: { ...current[application.id], result: event.target.value } }))} placeholder="Reponse RH, refuse, entretien..." />
+                        </div>
+                      </div>
+                      <div style={{ marginTop:'10px' }}>
+                        <label className="field-label">Notes internes</label>
+                        <textarea value={draft.notes} onChange={(event) => setApplicationDrafts((current) => ({ ...current, [application.id]: { ...current[application.id], notes: event.target.value } }))} rows={3} placeholder="Message envoye, lien, suivi..." />
+                      </div>
+                      <div style={{ display:'flex', justifyContent:'flex-end', marginTop:'12px' }}>
+                        <button onClick={() => saveApplication(application.id)} disabled={savingApplicationId === application.id} className="btn btn-primary btn-sm">
+                          {savingApplicationId === application.id ? <><Loader2 size={14} style={{ animation:'spin 0.7s linear infinite' }} /> Sauvegarde...</> : <><Save size={14} /> Sauvegarder</>}
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </SectionCard>
+        </div>
+      )}
+
+      {tab === 'messages' && (
+        <SectionCard title="Conversation candidat">
+          <div style={{ background:'white', border:'1px solid #E5E7EB', borderRadius:'14px', height:'380px', overflowY:'auto', padding:'16px', display:'flex', flexDirection:'column', gap:'10px' }}>
+            {messages.length === 0 ? (
+              <div style={{ margin:'auto', textAlign:'center', color:'#6B7280', fontSize:'13px' }}>
+                Aucune conversation visible avec ce candidat.
+              </div>
+            ) : (
+              messages.map((message: any) => {
+                const isAdmin = message.expediteur === 'admin' || message.expediteur === 'ia'
+                return (
+                  <div key={message.id} style={{ display:'flex', flexDirection:isAdmin ? 'row-reverse' : 'row', gap:'8px', alignItems:'flex-end' }}>
+                    <div style={{ width:'28px', height:'28px', borderRadius:'50%', background:isAdmin ? '#1B3A6B' : '#E5E7EB', color:isAdmin ? 'white' : '#374151', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'10px', fontWeight:'700', flexShrink:0 }}>
+                      {isAdmin ? 'IP' : 'C'}
+                    </div>
+                    <div style={{ maxWidth:'72%' }}>
+                      <div style={{ padding:'10px 12px', borderRadius:isAdmin ? '14px 14px 4px 14px' : '14px 14px 14px 4px', background:isAdmin ? '#1B3A6B' : '#F3F4F6', color:isAdmin ? 'white' : '#111827', fontSize:'13px', lineHeight:'1.5' }}>
+                        {message.contenu}
+                      </div>
+                      <div style={{ fontSize:'10px', color:'#9CA3AF', marginTop:'4px', textAlign:isAdmin ? 'right' : 'left' }}>
+                        {message.nom_expediteur} · {relative_time(message.created_at)}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })
+            )}
+            <div ref={bottomRef} />
+          </div>
+
+          <div style={{ display:'flex', gap:'8px', alignItems:'flex-end', marginTop:'12px' }}>
+            <textarea value={newMessage} onChange={(event) => setNewMessage(event.target.value)} rows={3} placeholder="Message au candidat..." style={{ flex:1 }} />
+            <button onClick={sendMessage} disabled={sendingMessage || !newMessage.trim()} className="btn btn-primary">
+              {sendingMessage ? <><Loader2 size={14} style={{ animation:'spin 0.7s linear infinite' }} /> Envoi...</> : <><Send size={14} /> Envoyer</>}
+            </button>
+          </div>
+        </SectionCard>
+      )}
+
+      {tab === 'ia' && (
+        <SectionCard title="Assistants IA">
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))', gap:'12px' }}>
+            {AGENTS.map((agent) => {
+              const running = agentLoading === agent.id
+              const result = agentResults[agent.id]
+              return (
+                <div key={agent.id} style={{ border:'1px solid #EEF2F7', borderRadius:'14px', padding:'14px' }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', gap:'10px', alignItems:'flex-start' }}>
+                    <div>
+                      <div style={{ fontSize:'14px', fontWeight:'800' }}>{agent.label}</div>
+                      <div style={{ fontSize:'12px', color:'#6B7280', marginTop:'4px' }}>{agent.desc}</div>
+                    </div>
+                    <button onClick={() => runAgent(agent.id)} disabled={Boolean(agentLoading)} className="btn btn-secondary btn-sm">
+                      {running ? <><Loader2 size={14} style={{ animation:'spin 0.7s linear infinite' }} /> En cours</> : <><Brain size={14} /> Lancer</>}
+                    </button>
+                  </div>
+                  {result?.output && (
+                    <div style={{ marginTop:'12px', background:'#F9FAFB', borderRadius:'10px', padding:'12px' }}>
+                      {result.output.summaryFr && <div style={{ fontSize:'13px', color:'#374151', lineHeight:'1.6' }}>{result.output.summaryFr}</div>}
+                      {result.output.suggestedAction && <div style={{ fontSize:'13px', color:'#374151', lineHeight:'1.6' }}>{result.output.suggestedAction}</div>}
+                      {result.output.cvText && (
+                        <div style={{ display:'flex', gap:'8px', marginTop:'10px' }}>
+                          {agent.id === 'generate_cv_fr' && (
+                            <button onClick={() => downloadCv('fr')} className="btn btn-primary btn-sm">
+                              <Download size={14} /> Telecharger FR
+                            </button>
+                          )}
+                          {agent.id === 'generate_cv_it' && (
+                            <button onClick={() => downloadCv('it')} className="btn btn-primary btn-sm">
+                              <Download size={14} /> Telecharger IT
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </SectionCard>
+      )}
+
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  )
+}

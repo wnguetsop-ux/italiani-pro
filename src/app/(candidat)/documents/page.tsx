@@ -3,12 +3,13 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useDropzone } from 'react-dropzone'
 import Link from 'next/link'
 import { db, auth, storage } from '@/lib/firebase'
-import { collection, query, where, getDocs } from 'firebase/firestore'
+import { collection, query, where, getDocs, doc, updateDoc } from 'firebase/firestore'
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage'
 import { addDoc, serverTimestamp } from 'firebase/firestore'
 import { Upload, FileText, Download, Eye, RefreshCw, PenLine, X } from 'lucide-react'
 import { fmt_date, fmt_size } from '@/lib/utils'
 import { toast } from 'sonner'
+import { recordCandidateActivity, syncCandidateDerivedFields } from '@/lib/backoffice-data'
 
 interface Doc { id:string; nom:string; statut:string; file_url?:string; taille?:number; created_at:any; content_text?:string; type_doc?:string }
 
@@ -83,12 +84,36 @@ export default function DocumentsPage() {
         file_path:    filePath,
         taille:       file.size,
         mime_type:    file.type,
+        workflow_status: 'RECEIVED',
+        doc_type: 'other',
+        source_language: '',
+        translated_language: '',
+        final_version: false,
         statut:       'uploade',
+        received_at:  serverTimestamp(),
         created_at:   serverTimestamp(),
         updated_at:   serverTimestamp(),
       })
 
       toast.success('✅ Document uploadé avec succès !')
+      await updateDoc(doc(db, 'dossiers', uid), {
+        workflow_status: 'TO_REVIEW',
+        statut: 'en_verification',
+        next_action: 'Verifier les nouveaux documents recus',
+        next_action_at: serverTimestamp(),
+        updated_at: serverTimestamp(),
+      })
+
+      await recordCandidateActivity({
+        candidateId: uid,
+        type: 'document_received',
+        title: 'Document recu',
+        description: file.name,
+        actorName: auth.currentUser?.displayName || 'Candidat',
+        actorRole: 'candidat',
+      })
+
+      await syncCandidateDerivedFields(uid)
       await loadDocs()
 
     } catch (err: any) {

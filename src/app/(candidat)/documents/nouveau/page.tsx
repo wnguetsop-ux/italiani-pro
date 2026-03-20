@@ -2,10 +2,11 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { db, auth } from '@/lib/firebase'
-import { addDoc, collection, serverTimestamp } from 'firebase/firestore'
+import { addDoc, collection, doc, serverTimestamp, updateDoc } from 'firebase/firestore'
 import { ArrowLeft, CheckCircle, Loader2 } from 'lucide-react'
 import Link from 'next/link'
 import { toast } from 'sonner'
+import { recordCandidateActivity, syncCandidateDerivedFields } from '@/lib/backoffice-data'
 
 const TYPES = [
   { v:'cv',              l:'📄 CV / Curriculum Vitae',              hint:'Collez votre CV ou décrivez vos expériences professionnelles' },
@@ -105,10 +106,32 @@ export default function NouveauDocPage() {
       const docNom = nom.trim() || TYPES.find(t => t.v === type)?.l.replace(/^[^\s]+ /, '') || 'Document'
       await addDoc(collection(db, 'documents'), {
         uid, nom: docNom, type_doc: type, content_text: texte.trim(),
+        doc_type: type,
+        workflow_status: 'RECEIVED',
+        source_language: 'fr',
+        translated_language: '',
+        final_version: false,
         statut: 'uploade', file_url: null,
+        received_at: serverTimestamp(),
         created_at: serverTimestamp(), updated_at: serverTimestamp(),
       })
       toast.success('✅ Document enregistré !')
+      await updateDoc(doc(db, 'dossiers', uid), {
+        workflow_status: 'TO_REVIEW',
+        statut: 'en_verification',
+        next_action: 'Verifier les nouveaux documents recus',
+        next_action_at: serverTimestamp(),
+        updated_at: serverTimestamp(),
+      })
+      await recordCandidateActivity({
+        candidateId: uid,
+        type: 'document_received',
+        title: 'Document texte recu',
+        description: docNom,
+        actorName: auth.currentUser?.displayName || 'Candidat',
+        actorRole: 'candidat',
+      })
+      await syncCandidateDerivedFields(uid)
       router.push('/documents')
     } catch {
       toast.error('Erreur lors de l\'enregistrement')

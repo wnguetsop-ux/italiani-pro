@@ -1,6 +1,7 @@
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, sendPasswordResetEmail } from 'firebase/auth'
-import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore'
+import { addDoc, collection, doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore'
 import { auth, db } from './firebase'
+import { buildDefaultChecklist } from '@/lib/backoffice'
 
 const ADMIN_ROLES = ['admin', 'super_admin', 'agent']
 
@@ -32,10 +33,41 @@ export async function register(data: {
     created_at: serverTimestamp(), updated_at: serverTimestamp(),
   })
   await setDoc(doc(db, 'dossiers', uid), {
-    uid, statut: 'nouveau', score_completion: 0,
-    is_urgent: false, secteur_cible: '', region_italie: '',
-    profession: '', annees_experience: 0, niveau_etudes: '',
-    langues: [], created_at: serverTimestamp(), updated_at: serverTimestamp(),
+    uid,
+    workflow_status: 'NEW',
+    statut: 'nouveau',
+    score_completion: 0,
+    dossier_completeness_percent: 0,
+    readiness_score: 0,
+    priority_score: 0,
+    is_urgent: false,
+    click_day_urgent: false,
+    secteur_cible: '',
+    region_italie: '',
+    profession: '',
+    target_job: '',
+    pack: '',
+    next_action: 'Verifier le profil et les premiers documents',
+    next_action_at: null,
+    internal_notes: '',
+    payment_status: '',
+    checklists: buildDefaultChecklist(),
+    annees_experience: 0,
+    niveau_etudes: '',
+    langues: [],
+    created_at: serverTimestamp(),
+    updated_at: serverTimestamp(),
+  })
+  await addDoc(collection(db, 'activity_logs'), {
+    candidateId: uid,
+    uid,
+    type: 'candidate_registered',
+    title: 'Nouveau dossier cree',
+    description: 'Le candidat a cree son espace et son dossier.',
+    actorName: data.full_name,
+    actorRole: 'candidat',
+    created_at: serverTimestamp(),
+    createdAt: serverTimestamp(),
   })
   const token = await cred.user.getIdToken()
   setCookies(token, 'candidat')
