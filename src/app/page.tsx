@@ -1,6 +1,7 @@
 'use client'
 import { useState } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { MessageCircle, Mail, CheckCircle, ArrowRight, Star, Calendar, Users, TrendingUp, Award, Zap, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -300,10 +301,14 @@ export default function Home() {
       {/* NAV */}
       <nav style={{ background:'white', borderBottom:'1.5px solid #E4E8EF', padding:'0 20px', height:'64px', display:'flex', alignItems:'center', justifyContent:'space-between', position:'sticky', top:0, zIndex:50 }}>
         <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
-          <div style={{ width:'38px', height:'38px', background:'#1B3A6B', borderRadius:'10px', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-            <span style={{ color:'#D4A017', fontWeight:'900', fontSize:'14px' }}>IP</span>
-          </div>
-          <span style={{ fontWeight:'900', fontSize:'19px' }}>Italiani<span style={{ color:'#D4A017' }}>Pro</span></span>
+          <Image
+            src="/logo-italianipro.svg"
+            alt="ItalianiPro"
+            width={208}
+            height={52}
+            priority
+            style={{ width:'208px', height:'auto', display:'block' }}
+          />
         </div>
         <div style={{ display:'flex', gap:'8px', alignItems:'center' }}>
           <a href="#methode" style={{ fontSize:'13px', fontWeight:'600', color:'#6B7280', textDecoration:'none', padding:'7px 12px' }}>Comprendre le Flusso</a>
@@ -650,6 +655,15 @@ export default function Home() {
 
       {/* FOOTER */}
       <footer style={{ background:'#0A0A0A', padding:'24px 20px', textAlign:'center', fontSize:'12px', color:'#6B7280' }}>
+        <div style={{ display:'flex', justifyContent:'center', marginBottom:'14px' }}>
+          <Image
+            src="/logo-italianipro-light.svg"
+            alt="ItalianiPro"
+            width={220}
+            height={55}
+            style={{ width:'220px', height:'auto', display:'block' }}
+          />
+        </div>
         <p style={{ margin:'0 0 6px' }}>© {new Date().getFullYear()} ItalianiPro · Intermédiation et accompagnement documentaire</p>
         <p style={{ margin:0 }}>⚠️ Aucune garantie d'emploi, visa ou nulla osta · La décision appartient à l'employeur et aux autorités italiennes</p>
       </footer>

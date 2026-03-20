@@ -1,0 +1,45 @@
+<svg width="720" height="180" viewBox="0 0 720 180" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="ip-bg" x1="90" y1="18" x2="90" y2="162" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1B3A6B"/>
+      <stop offset="1" stop-color="#142D53"/>
+    </linearGradient>
+    <filter id="ip-shadow" x="0" y="0" width="720" height="180" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#0F172A" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#ip-shadow)">
+    <rect x="18" y="18" width="144" height="144" rx="44" fill="url(#ip-bg)"/>
+    <rect x="18" y="18" width="18" height="144" rx="9" fill="#2F8F4E"/>
+    <rect x="36" y="18" width="18" height="144" fill="#FFF5E6"/>
+    <rect x="54" y="18" width="18" height="144" rx="0" fill="#D64541"/>
+
+    <path d="M104 49C117.807 49 129 60.1929 129 74V106C129 129.196 110.196 148 87 148H72V127H86.5C97.8218 127 107 117.822 107 106.5V75C107 69.4772 102.523 65 97 65H91V148H69V49H104Z" fill="#F8FAFC"/>
+    <path d="M112 30C121.941 30 130 38.0589 130 48C130 57.9411 121.941 66 112 66C102.059 66 94 57.9411 94 48C94 38.0589 102.059 30 112 30Z" fill="#D4A017"/>
+  </g>
+
+  <g>
+    <text x="194" y="78" fill="#162638" font-family="Plus Jakarta Sans, Segoe UI, Arial, sans-serif" font-size="48" font-weight="800" letter-spacing="-1.5">
+      Italiani
+    </text>
+    <text x="430" y="78" fill="#D4A017" font-family="Plus Jakarta Sans, Segoe UI, Arial, sans-serif" font-size="48" font-weight="800" letter-spacing="-1.5">
+      Pro
+    </text>
+    <text x="196" y="112" fill="#52616B" font-family="Plus Jakarta Sans, Segoe UI, Arial, sans-serif" font-size="20" font-weight="600" letter-spacing="0.5">
+      Dossier, CV et candidatures pour travailler en Italie
+    </text>
+    <g transform="translate(196 128)">
+      <rect width="124" height="30" rx="15" fill="#EBF3ED"/>
+      <text x="18" y="20" fill="#2F8F4E" font-family="Plus Jakarta Sans, Segoe UI, Arial, sans-serif" font-size="14" font-weight="700">Flusso</text>
+    </g>
+    <g transform="translate(330 128)">
+      <rect width="146" height="30" rx="15" fill="#EEF4FC"/>
+      <text x="18" y="20" fill="#1B3A6B" font-family="Plus Jakarta Sans, Segoe UI, Arial, sans-serif" font-size="14" font-weight="700">CV italien</text>
+    </g>
+    <g transform="translate(486 128)">
+      <rect width="156" height="30" rx="15" fill="#FFF5E8"/>
+      <text x="18" y="20" fill="#B7791F" font-family="Plus Jakarta Sans, Segoe UI, Arial, sans-serif" font-size="14" font-weight="700">Dossier final</text>
+    </g>
+  </g>
+</svg>
