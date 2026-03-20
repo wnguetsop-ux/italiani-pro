@@ -11,16 +11,31 @@ import { auth, db, storage } from '@/lib/firebase'
 import { recordCandidateActivity } from '@/lib/backoffice-data'
 import { fmt_date, fmt_size } from '@/lib/utils'
 import { toast } from 'sonner'
+import { CvProfessionalPreview } from '@/components/backoffice/CvProfessionalPreview'
+import { LetterProfessionalPreview } from '@/components/backoffice/LetterProfessionalPreview'
 
 interface Doc {
   id: string
   nom: string
   statut: string
-  file_url?: string
+  file_url?: string | null
   taille?: number
   created_at: any
   content_text?: string
   type_doc?: string
+  doc_type?: string
+  workflow_status?: string
+  source_language?: string
+  translated_language?: string
+  final_version?: boolean
+  mime_type?: string
+  generated_by_ai?: boolean
+  generated_asset_key?: string
+  render_payload?: {
+    type?: 'cv' | 'cover_letter'
+    lang?: string
+    data?: Record<string, unknown>
+  }
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number) {
@@ -61,10 +76,28 @@ function withSoftTimeout<T>(promise: Promise<T>, timeoutMs: number) {
   })
 }
 
+function looksLikePdf(docItem: Doc) {
+  return docItem.mime_type === 'application/pdf' || docItem.file_url?.toLowerCase().includes('.pdf')
+}
+
+function looksLikeImage(docItem: Doc) {
+  return Boolean(docItem.mime_type?.startsWith('image/'))
+}
+
+function inferUploadedDocType(filename: string) {
+  const normalized = filename.toLowerCase()
+  if (/cv|resume|curriculum/.test(normalized)) return 'cv'
+  if (/letter|motivation|cover/.test(normalized)) return 'cover_letter'
+  if (/passport|passeport/.test(normalized)) return 'passport'
+  if (/diplom|certificat|attestation/.test(normalized)) return 'diploma'
+  return 'other'
+}
+
 export default function DocumentsPage() {
   const [uid, setUid] = useState<string | null>(auth.currentUser?.uid ?? null)
   const [authReady, setAuthReady] = useState(Boolean(auth.currentUser))
   const [docs, setDocs] = useState<Doc[]>([])
+  const [selectedDocId, setSelectedDocId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [progress, setProgress] = useState(0)
@@ -102,6 +135,17 @@ export default function DocumentsPage() {
   useEffect(() => {
     loadDocs()
   }, [loadDocs])
+
+  useEffect(() => {
+    if (!docs.length) {
+      setSelectedDocId(null)
+      return
+    }
+    if (!selectedDocId || !docs.some((item) => item.id === selectedDocId)) {
+      const finalDoc = docs.find((item) => item.final_version)
+      setSelectedDocId(finalDoc?.id ?? docs[0].id)
+    }
+  }, [docs, selectedDocId])
 
   const runPostUploadSync = useCallback((candidateId: string, description: string) => {
     void (async () => {
@@ -167,6 +211,7 @@ export default function DocumentsPage() {
     try {
       const filename = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`
       const filePath = `documents/${uid}/${filename}`
+      const inferredDocType = inferUploadedDocType(file.name)
       const storageRef = ref(storage, filePath)
       setProgress(15)
 
@@ -189,7 +234,8 @@ export default function DocumentsPage() {
         taille: file.size,
         mime_type: file.type,
         workflow_status: 'RECEIVED',
-        doc_type: 'other',
+        doc_type: inferredDocType,
+        type_doc: inferredDocType,
         source_language: '',
         translated_language: '',
         final_version: false,
@@ -207,10 +253,13 @@ export default function DocumentsPage() {
           file_url: downloadURL ?? undefined,
           taille: file.size,
           created_at: { seconds: Math.floor(Date.now() / 1000) },
-          type_doc: 'other',
+          type_doc: inferredDocType,
+          doc_type: inferredDocType,
+          mime_type: file.type,
         }
         return [optimisticDoc, ...current.filter((item) => item.id !== docRef.id)]
       })
+      setSelectedDocId(docRef.id)
 
       setProgress(100)
       toast.success(downloadURL ? 'Document uploade avec succes' : 'Document uploade. Finalisation en cours...')
@@ -239,12 +288,12 @@ export default function DocumentsPage() {
       const msg = err?.message === 'UPLOAD_TIMEOUT'
         ? 'Upload trop long. Verifiez la connexion ou les regles Firebase Storage.'
         : err?.code === 'storage/unauthorized'
-        ? 'Erreur de permission. Verifiez les regles Firebase Storage.'
-        : err?.code === 'storage/retry-limit-exceeded'
-        ? 'Connexion trop lente. Reessayez.'
-        : err?.code === 'storage/canceled'
-        ? 'Upload annule.'
-        : 'Erreur upload. Reessayez.'
+          ? 'Erreur de permission. Verifiez les regles Firebase Storage.'
+          : err?.code === 'storage/retry-limit-exceeded'
+            ? 'Connexion trop lente. Reessayez.'
+            : err?.code === 'storage/canceled'
+              ? 'Upload annule.'
+              : 'Erreur upload. Reessayez.'
       toast.error(msg)
       setError(msg)
     } finally {
@@ -262,6 +311,18 @@ export default function DocumentsPage() {
   })
 
   const approved = docs.filter((docItem) => docItem.statut === 'approuve').length
+  const selectedDoc = docs.find((docItem) => docItem.id === selectedDocId) ?? null
+
+  function downloadTextDocument(docItem: Doc) {
+    if (!docItem.content_text) return
+    const blob = new Blob([docItem.content_text], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${(docItem.nom || 'document').replace(/[^a-zA-Z0-9_-]+/g, '_')}.txt`
+    link.click()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1200)
+  }
 
   if (loading || !authReady) {
     return (
@@ -366,58 +427,121 @@ export default function DocumentsPage() {
           </Link>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          {docs.map((docItem) => (
-            <div key={docItem.id} className="card" style={{ padding: '12px 14px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <div
-                style={{
-                  width: '38px',
-                  height: '38px',
-                  borderRadius: '9px',
-                  flexShrink: 0,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  background: docItem.content_text ? '#F5F3FF' : docItem.statut === 'approuve' ? '#F0FDF4' : docItem.statut === 'rejete' ? '#FFF1F2' : '#EFF6FF',
-                }}
-              >
-                {docItem.content_text ? (
-                  <PenLine size={17} color="#7C3AED" />
-                ) : (
-                  <FileText size={17} color={docItem.statut === 'approuve' ? '#22C55E' : docItem.statut === 'rejete' ? '#EF4444' : '#3B82F6'} />
-                )}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {docs.map((docItem) => (
+              <div key={docItem.id} className="card" style={{ padding: '12px 14px', display: 'flex', alignItems: 'center', gap: '12px', border: selectedDoc?.id === docItem.id ? '1.5px solid #1B3A6B' : undefined }}>
+                <div
+                  style={{
+                    width: '38px',
+                    height: '38px',
+                    borderRadius: '9px',
+                    flexShrink: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: docItem.content_text ? '#F5F3FF' : docItem.statut === 'approuve' ? '#F0FDF4' : docItem.statut === 'rejete' ? '#FFF1F2' : '#EFF6FF',
+                  }}
+                >
+                  {docItem.content_text ? (
+                    <PenLine size={17} color="#7C3AED" />
+                  ) : (
+                    <FileText size={17} color={docItem.statut === 'approuve' ? '#22C55E' : docItem.statut === 'rejete' ? '#EF4444' : '#3B82F6'} />
+                  )}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: '600', fontSize: '14px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{docItem.nom || 'Document'}</div>
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '3px', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <span
+                      style={{
+                        fontSize: '11px',
+                        fontWeight: '600',
+                        padding: '2px 8px',
+                        borderRadius: '99px',
+                        background: docItem.statut === 'approuve' ? '#F0FDF4' : docItem.statut === 'rejete' ? '#FFF1F2' : '#EFF6FF',
+                        color: docItem.statut === 'approuve' ? '#15803D' : docItem.statut === 'rejete' ? '#BE123C' : '#1D4ED8',
+                      }}
+                    >
+                      {docItem.statut === 'approuve' ? 'Approuve' : docItem.statut === 'rejete' ? 'Rejete' : docItem.statut === 'en_verification' ? 'En revision' : 'En attente'}
+                    </span>
+                    {docItem.final_version ? (
+                      <span style={{ fontSize: '11px', fontWeight: '700', padding: '2px 8px', borderRadius: '99px', background: '#ECFCCB', color: '#3F6212' }}>
+                        Version finale
+                      </span>
+                    ) : null}
+                    {docItem.generated_by_ai ? (
+                      <span style={{ fontSize: '11px', fontWeight: '700', padding: '2px 8px', borderRadius: '99px', background: '#EEF2FF', color: '#4338CA' }}>
+                        Travail ItalianiPro
+                      </span>
+                    ) : null}
+                    {docItem.taille ? <span style={{ fontSize: '11px', color: '#9CA3AF' }}>{fmt_size(docItem.taille)}</span> : null}
+                    {docItem.content_text ? <span style={{ fontSize: '11px', color: '#7C3AED', fontStyle: 'italic' }}>Texte disponible</span> : null}
+                  </div>
+                </div>
+                {(docItem.file_url || docItem.content_text || docItem.render_payload) ? (
+                  <div style={{ display: 'flex', gap: '5px', flexShrink: 0 }}>
+                    <button onClick={() => setSelectedDocId(docItem.id)} className="btn btn-secondary btn-icon btn-sm" title="Voir">
+                      <Eye size={14} />
+                    </button>
+                    {docItem.file_url ? (
+                      <a href={docItem.file_url} download={docItem.nom || 'document'} className="btn btn-secondary btn-icon btn-sm" title="Telecharger">
+                        <Download size={14} />
+                      </a>
+                    ) : docItem.content_text ? (
+                      <button onClick={() => downloadTextDocument(docItem)} className="btn btn-secondary btn-icon btn-sm" title="Telecharger">
+                        <Download size={14} />
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: '600', fontSize: '14px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{docItem.nom || 'Document'}</div>
-                <div style={{ display: 'flex', gap: '8px', marginTop: '3px', flexWrap: 'wrap', alignItems: 'center' }}>
-                  <span
-                    style={{
-                      fontSize: '11px',
-                      fontWeight: '600',
-                      padding: '2px 8px',
-                      borderRadius: '99px',
-                      background: docItem.statut === 'approuve' ? '#F0FDF4' : docItem.statut === 'rejete' ? '#FFF1F2' : '#EFF6FF',
-                      color: docItem.statut === 'approuve' ? '#15803D' : docItem.statut === 'rejete' ? '#BE123C' : '#1D4ED8',
-                    }}
-                  >
-                    {docItem.statut === 'approuve' ? 'Approuve' : docItem.statut === 'rejete' ? 'Rejete' : docItem.statut === 'en_verification' ? 'En revision' : 'En attente'}
-                  </span>
-                  {docItem.taille ? <span style={{ fontSize: '11px', color: '#9CA3AF' }}>{fmt_size(docItem.taille)}</span> : null}
-                  {docItem.content_text ? <span style={{ fontSize: '11px', color: '#7C3AED', fontStyle: 'italic' }}>Texte ecrit</span> : null}
+            ))}
+          </div>
+
+          {selectedDoc && (
+            <div className="card" style={{ padding: '16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontSize: '16px', fontWeight: '800', color: '#111827' }}>Apercu du document</div>
+                  <div style={{ fontSize: '12px', color: '#6B7280', marginTop: '4px' }}>{selectedDoc.nom || 'Document'} · {fmt_date(selectedDoc.created_at)}</div>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  {selectedDoc.file_url ? (
+                    <a href={selectedDoc.file_url} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-sm">
+                      <Eye size={14} /> Ouvrir
+                    </a>
+                  ) : null}
+                  {selectedDoc.content_text ? (
+                    <button onClick={() => downloadTextDocument(selectedDoc)} className="btn btn-secondary btn-sm">
+                      <Download size={14} /> Telecharger
+                    </button>
+                  ) : null}
                 </div>
               </div>
-              {docItem.file_url ? (
-                <div style={{ display: 'flex', gap: '5px', flexShrink: 0 }}>
-                  <a href={docItem.file_url} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-icon btn-sm" title="Voir">
-                    <Eye size={14} />
-                  </a>
-                  <a href={docItem.file_url} download={docItem.nom} className="btn btn-secondary btn-icon btn-sm" title="Telecharger">
-                    <Download size={14} />
-                  </a>
+
+              {selectedDoc.render_payload?.type === 'cv' && selectedDoc.render_payload.data ? (
+                <CvProfessionalPreview data={selectedDoc.render_payload.data as any} />
+              ) : selectedDoc.render_payload?.type === 'cover_letter' && selectedDoc.render_payload.data ? (
+                <LetterProfessionalPreview data={selectedDoc.render_payload.data as any} />
+              ) : selectedDoc.content_text ? (
+                <pre style={{ margin:0, background:'#F9FAFB', border:'1px solid #E5E7EB', borderRadius:'12px', padding:'14px', whiteSpace:'pre-wrap', wordBreak:'break-word', fontSize:'12px', lineHeight:'1.7', maxHeight:'520px', overflowY:'auto' }}>
+                  {selectedDoc.content_text}
+                </pre>
+              ) : looksLikeImage(selectedDoc) && selectedDoc.file_url ? (
+                <img src={selectedDoc.file_url} alt={selectedDoc.nom || 'Document'} style={{ width:'100%', borderRadius:'12px', border:'1px solid #E5E7EB', objectFit:'contain', maxHeight:'520px' }} />
+              ) : looksLikePdf(selectedDoc) && selectedDoc.file_url ? (
+                <iframe src={selectedDoc.file_url} title={selectedDoc.nom || 'Document PDF'} style={{ width:'100%', height:'520px', border:'1px solid #E5E7EB', borderRadius:'12px', background:'white' }} />
+              ) : selectedDoc.file_url ? (
+                <div style={{ background:'#F9FAFB', border:'1px dashed #CBD5E1', borderRadius:'12px', padding:'16px', fontSize:'13px', color:'#475569' }}>
+                  Apercu integre non disponible pour ce format. Ouvrez le fichier pour le consulter.
                 </div>
-              ) : null}
+              ) : (
+                <div style={{ background:'#F9FAFB', border:'1px dashed #CBD5E1', borderRadius:'12px', padding:'16px', fontSize:'13px', color:'#475569' }}>
+                  Aucun apercu disponible pour ce document.
+                </div>
+              )}
             </div>
-          ))}
+          )}
         </div>
       )}
 

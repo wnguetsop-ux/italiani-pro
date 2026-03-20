@@ -110,6 +110,13 @@ export interface CandidateDocumentDoc {
   file_path?: string | null
   mime_type?: string
   taille?: number
+  generated_by_ai?: boolean
+  generated_asset_key?: string
+  render_payload?: {
+    type?: 'cv' | 'cover_letter'
+    lang?: string
+    data?: Record<string, unknown>
+  }
   created_at?: unknown
   updated_at?: unknown
   received_at?: unknown

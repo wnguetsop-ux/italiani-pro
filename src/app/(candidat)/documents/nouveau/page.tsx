@@ -14,7 +14,7 @@ const TYPES = [
   { v: 'cv', l: 'CV / Curriculum Vitae', hint: 'Collez votre CV ou decrivez vos experiences professionnelles' },
   { v: 'experiences', l: 'Experiences professionnelles', hint: 'Decrivez vos postes, durees, missions, employeurs...' },
   { v: 'competences', l: 'Competences et formations', hint: 'Listez vos competences techniques, formations, certifications...' },
-  { v: 'lettre_motiv', l: 'Lettre de motivation', hint: 'Ecrivez ou collez votre lettre de motivation' },
+  { v: 'cover_letter', l: 'Lettre de motivation', hint: 'Ecrivez ou collez votre lettre de motivation' },
   { v: 'description_doc', l: 'Description d un document officiel', hint: 'Decrivez le contenu d un document que vous ne pouvez pas scanner' },
   { v: 'autre', l: 'Autre (texte libre)', hint: 'Toute autre information utile pour votre dossier' },
 ]
@@ -82,6 +82,26 @@ Langues parlees :
 - Francais :
 - Anglais :
 - Autres :`,
+  cover_letter: `Objet :
+
+Madame, Monsieur,
+
+Je souhaite proposer ma candidature pour un poste en Italie dans le secteur suivant :
+
+Mon experience principale :
+- 
+- 
+
+Mes competences les plus utiles :
+- 
+- 
+
+Ma disponibilite :
+
+Ce qui me motive a travailler en Italie :
+
+Cordialement,
+[Nom complet]`,
 }
 
 export default function NouveauDocPage() {

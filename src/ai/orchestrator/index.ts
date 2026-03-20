@@ -124,6 +124,202 @@ function buildCvSourceText(parts: Array<string | undefined | null>) {
     .join('\n\n')
 }
 
+type OrchestratorDocument = Record<string, unknown> & { id: string }
+
+function isLikelyCvDocument(document: OrchestratorDocument) {
+  const type = String(document.doc_type ?? document.type_doc ?? '').toLowerCase()
+  const name = String(document.nom ?? document.original_name ?? '').toLowerCase()
+  return type === 'cv' || /cv|resume|curriculum/.test(name)
+}
+
+function pickBestSourceDocument(documents: OrchestratorDocument[], sourceDocumentId?: string) {
+  if (sourceDocumentId) {
+    const directMatch = documents.find((item) => item.id === sourceDocumentId)
+    if (directMatch) return directMatch
+  }
+
+  return (
+    documents.find((item) => isLikelyCvDocument(item) && typeof item.content_text === 'string' && item.content_text.trim()) ??
+    documents.find((item) => isLikelyCvDocument(item) && typeof item.file_url === 'string' && item.file_url.trim()) ??
+    documents.find((item) => typeof item.content_text === 'string' && item.content_text.trim()) ??
+    documents.find((item) => typeof item.file_url === 'string' && item.file_url.trim()) ??
+    null
+  )
+}
+
+async function extractDocumentTextFromFile(document: OrchestratorDocument) {
+  const fileUrl = typeof document.file_url === 'string' ? document.file_url : ''
+  if (!fileUrl || !process.env.OPENAI_API_KEY) return ''
+
+  const res = await fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o',
+      input: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'input_text',
+              text: [
+                'Tu lis un CV ou un document professionnel de candidat.',
+                'Extrais uniquement le texte utile en plain text UTF-8.',
+                'Conserve les titres, listes, dates, noms de postes, competences et langues.',
+                'Ne fais aucun commentaire, aucune analyse, aucun JSON.',
+                'Si certaines parties sont illisibles, ignore-les.',
+              ].join(' '),
+            },
+            {
+              type: 'input_file',
+              file_url: fileUrl,
+            },
+          ],
+        },
+      ],
+    }),
+  })
+
+  if (!res.ok) {
+    const err = await res.text()
+    throw new Error(`OpenAI file extraction error ${res.status}: ${err}`)
+  }
+
+  const data = await res.json()
+  return typeof data.output_text === 'string' ? data.output_text.trim() : ''
+}
+
+async function ensureDocumentText(document: OrchestratorDocument | null) {
+  if (!document) return ''
+  if (typeof document.content_text === 'string' && document.content_text.trim()) {
+    return document.content_text.trim()
+  }
+
+  try {
+    const extractedText = await extractDocumentTextFromFile(document)
+    if (extractedText) {
+      await adminDb().collection('documents').doc(document.id).update({
+        content_text: extractedText,
+        extracted_at: FieldValue.serverTimestamp(),
+        updated_at: FieldValue.serverTimestamp(),
+      })
+      document.content_text = extractedText
+    }
+    return extractedText
+  } catch (error) {
+    console.warn('[document-extraction] failed:', document.id, error)
+    return ''
+  }
+}
+
+function buildCvRenderPayload(candidateId: string, fullName: string, email: string, phone: string, country: string, dossier: Record<string, unknown>, output: any, lang: 'fr' | 'it') {
+  const sections = Array.isArray(output.cvSections)
+    ? output.cvSections
+        .filter((section: any) => section && typeof section.title === 'string' && typeof section.content === 'string')
+        .map((section: any) => ({ title: String(section.title), content: String(section.content) }))
+    : []
+
+  const summarySection = sections.find((section: { title: string; content: string }) => /profil|profile|profilo/i.test(section.title))
+
+  return {
+    type: 'cv',
+    lang,
+    data: {
+      candidateId,
+      fullName,
+      title: String(output.suggestedTitle || dossier.target_job || dossier.profession || 'Profil professionnel'),
+      email,
+      phone,
+      location: [dossier.region_italie, country].filter(Boolean).join(' · '),
+      summary: summarySection?.content ?? '',
+      sections,
+      keywords: Array.isArray(output.keywords) ? output.keywords.map((item: unknown) => String(item)) : [],
+      lang,
+    },
+  }
+}
+
+function splitLetterParagraphs(letterText: string, salutation?: string, closing?: string, signature?: string) {
+  return letterText
+    .split(/\n\s*\n/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean)
+    .filter((paragraph) => paragraph !== salutation && paragraph !== closing && paragraph !== signature)
+}
+
+function buildLetterRenderPayload(candidateId: string, fullName: string, email: string, phone: string, country: string, dossier: Record<string, unknown>, output: any, lang: 'fr' | 'it' | 'en') {
+  return {
+    type: 'cover_letter',
+    lang,
+    data: {
+      candidateId,
+      fullName,
+      title: String(dossier.target_job || dossier.profession || 'Candidat ItalianiPro'),
+      email,
+      phone,
+      location: [dossier.region_italie, country].filter(Boolean).join(' | '),
+      subject: String(output.subject || ''),
+      salutation: String(output.salutation || ''),
+      bodyParagraphs: splitLetterParagraphs(String(output.letterText || ''), output.salutation, output.closing, fullName),
+      closing: String(output.closing || ''),
+      signature: fullName,
+      lang,
+    },
+  }
+}
+
+async function upsertGeneratedDocument(input: {
+  candidateId: string
+  assetKey: string
+  name: string
+  docType: string
+  lang: string
+  contentText: string
+  renderPayload: Record<string, unknown>
+}) {
+  const generatedDocId = `generated_${input.candidateId}_${input.assetKey}`.replace(/[^a-zA-Z0-9_-]+/g, '_')
+  const generatedRef = adminDb().collection('documents').doc(generatedDocId)
+
+  const payload = {
+    uid: input.candidateId,
+    candidateId: input.candidateId,
+    nom: input.name,
+    original_name: input.name,
+    workflow_status: 'VALIDATED',
+    statut: 'approuve',
+    doc_type: input.docType,
+    type_doc: input.docType,
+    source_language: input.lang,
+    translated_language: '',
+    final_version: true,
+    generated_by_ai: true,
+    generated_asset_key: input.assetKey,
+    content_text: input.contentText,
+    render_payload: input.renderPayload,
+    file_url: null,
+    file_path: null,
+    mime_type: 'text/plain',
+    validated_at: FieldValue.serverTimestamp(),
+    updated_at: FieldValue.serverTimestamp(),
+  }
+
+  const existingSnap = await generatedRef.get()
+  if (existingSnap.exists) {
+    await generatedRef.update(payload)
+    return generatedDocId
+  }
+
+  await generatedRef.set({
+    ...payload,
+    received_at: FieldValue.serverTimestamp(),
+    created_at: FieldValue.serverTimestamp(),
+  })
+  return generatedDocId
+}
+
 export async function generateCV(
   candidateId: string,
   adminUid: string,
@@ -146,9 +342,8 @@ export async function generateCV(
     id: snapshot.id,
     ...(snapshot.data() as Record<string, unknown>),
   }))
-  const selectedDocument = options?.sourceDocumentId
-    ? documents.find((item) => item.id === options.sourceDocumentId)
-    : null
+  const selectedDocument = pickBestSourceDocument(documents, options?.sourceDocumentId)
+  const extractedSelectedText = await ensureDocumentText(selectedDocument)
 
   const documentsText = documents
     .filter((item) => typeof item.content_text === 'string' && item.content_text.trim().length > 0)
@@ -157,10 +352,14 @@ export async function generateCV(
 
   const rawExperiences = buildCvSourceText([
     typeof profile?.raw_experiences === 'string' ? profile.raw_experiences : '',
+    typeof dossier.target_job === 'string' ? `Metier vise en Italie: ${dossier.target_job}` : '',
     typeof dossier.experiences === 'string' ? dossier.experiences : '',
     typeof dossier.competences === 'string' ? `Competences et formations:\n${dossier.competences}` : '',
-    selectedDocument && typeof selectedDocument.content_text === 'string'
-      ? `Document source selectionne:\n${selectedDocument.content_text}`
+    typeof dossier.driving_license === 'string' ? `Permis de conduire: ${dossier.driving_license}` : '',
+    typeof dossier.availability === 'string' ? `Disponibilite: ${dossier.availability}` : '',
+    typeof dossier.italy_motivation === 'string' ? `Motivation Italie:\n${dossier.italy_motivation}` : '',
+    extractedSelectedText
+      ? `Document source selectionne:\n${extractedSelectedText}`
       : '',
     documentsText ? `Autres textes disponibles du dossier:\n${documentsText}` : '',
     options?.sourceText ? `Notes brutes ajoutees par l operateur:\n${options.sourceText}` : '',
@@ -198,17 +397,28 @@ export async function generateCV(
     created_at:   FieldValue.serverTimestamp(),
   })
 
+  await upsertGeneratedDocument({
+    candidateId,
+    assetKey: `cv_${lang}_final`,
+    name: lang === 'it' ? 'CV italien final' : 'CV francais final',
+    docType: 'cv',
+    lang,
+    contentText: result.output.cvText,
+    renderPayload: buildCvRenderPayload(candidateId, user.full_name ?? '', user.email ?? '', user.phone ?? '', user.country_code ?? '', dossier, result.output, lang),
+  })
+
   await Events.cvReady(candidateId, adminUid, lang)
   return result
 }
 
 // ── Générer Lettre de Motivation ──────────────────────────
 export async function generateCoverLetter(candidateId: string, adminUid: string, lang: 'fr' | 'it' | 'en' = 'fr', customNotes?: string) {
-  const [profileSnap, userSnap, dossierSnap, ordersSnap] = await Promise.all([
+  const [profileSnap, userSnap, dossierSnap, ordersSnap, docsSnap] = await Promise.all([
     adminDb().collection('candidate_profiles').doc(candidateId).get(),
     adminDb().collection('users').doc(candidateId).get(),
     adminDb().collection('dossiers').doc(candidateId).get(),
     adminDb().collection('orders').where('candidate_id', '==', candidateId).limit(1).get(),
+    adminDb().collection('documents').where('uid', '==', candidateId).get(),
   ])
 
   if (!userSnap.exists) throw new Error('Candidate not found')
@@ -216,6 +426,12 @@ export async function generateCoverLetter(candidateId: string, adminUid: string,
   const p = profileSnap.exists ? profileSnap.data()! : null
   const u = userSnap.data()!
   const dossier = dossierSnap.exists ? dossierSnap.data()! : {}
+  const documents: OrchestratorDocument[] = docsSnap.docs.map((snapshot) => ({
+    id: snapshot.id,
+    ...(snapshot.data() as Record<string, unknown>),
+  }))
+  const selectedDocument = pickBestSourceDocument(documents)
+  const extractedSelectedText = await ensureDocumentText(selectedDocument)
   const packType = ordersSnap.empty ? dossier.pack ?? 'basic' : ordersSnap.docs[0].data().pack_type ?? dossier.pack ?? 'basic'
 
   const input: CoverLetterInput = {
@@ -226,7 +442,12 @@ export async function generateCoverLetter(candidateId: string, adminUid: string,
     targetRegion:  p?.target_region_italy ?? dossier.region_italie ?? dossier.preferred_region_italy ?? '',
     packType,
     lang,
-    customNotes,
+    customNotes: buildCvSourceText([
+      customNotes,
+      extractedSelectedText ? `Texte utile du CV source:\n${extractedSelectedText}` : '',
+      typeof dossier.italy_motivation === 'string' ? `Motivation Italie:\n${dossier.italy_motivation}` : '',
+      typeof dossier.experiences === 'string' ? `Experience:\n${dossier.experiences}` : '',
+    ]),
   }
 
   const result = await AGENT_REGISTRY.agent_cover_letter.run(input, adminUid, 'manual')
@@ -240,6 +461,16 @@ export async function generateCoverLetter(candidateId: string, adminUid: string,
     is_final:      false,
     created_by:    adminUid,
     created_at:    FieldValue.serverTimestamp(),
+  })
+
+  await upsertGeneratedDocument({
+    candidateId,
+    assetKey: `cover_letter_${lang}_final`,
+    name: lang === 'it' ? 'Lettre motivation italienne finale' : `Lettre motivation ${lang} finale`,
+    docType: 'cover_letter',
+    lang,
+    contentText: result.output.letterText,
+    renderPayload: buildLetterRenderPayload(candidateId, u.full_name ?? '', u.email ?? '', u.phone ?? '', u.country_code ?? '', dossier, result.output, lang),
   })
 
   await Events.coverLetterReady(candidateId, adminUid)

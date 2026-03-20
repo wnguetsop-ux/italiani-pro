@@ -223,6 +223,104 @@ function buildLetterPreviewData(candidate: CandidateRecord, output: any, languag
   }
 }
 
+function escapePrintableHtml(value: string) {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
+}
+
+function renderPrintableParagraphs(value: string) {
+  return value
+    .split(/\n\s*\n/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean)
+    .map((paragraph) => `<p style="margin:0 0 10px 0;color:#334155;line-height:1.7;font-size:13px;">${escapePrintableHtml(paragraph)}</p>`)
+    .join('')
+}
+
+function buildApplicationBundleHtml(candidate: CandidateRecord, documents: CandidateDocument[]) {
+  const sections = documents
+    .map((documentItem) => {
+      if (documentItem.render_payload?.type === 'cv' && documentItem.render_payload.data) {
+        const data = documentItem.render_payload.data as any
+        const cvSections = Array.isArray(data.sections) ? data.sections : []
+        return `
+          <section style="padding:20px 0;border-top:1px solid #E2E8F0;">
+            <h2 style="margin:0 0 12px 0;font-size:16px;color:#1E3A8A;">${escapePrintableHtml(documentItem.nom || 'CV final')}</h2>
+            ${data.summary ? `<div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:12px;padding:12px 14px;margin-bottom:14px;">${renderPrintableParagraphs(String(data.summary))}</div>` : ''}
+            ${cvSections.map((section: any) => `
+              <div style="margin-bottom:14px;">
+                <div style="font-size:12px;font-weight:800;letter-spacing:0.06em;text-transform:uppercase;color:#1D4ED8;margin-bottom:6px;">${escapePrintableHtml(String(section.title || 'Section'))}</div>
+                ${renderPrintableParagraphs(String(section.content || ''))}
+              </div>
+            `).join('')}
+          </section>
+        `
+      }
+
+      if (documentItem.render_payload?.type === 'cover_letter' && documentItem.render_payload.data) {
+        const data = documentItem.render_payload.data as any
+        const paragraphs = Array.isArray(data.bodyParagraphs) ? data.bodyParagraphs : []
+        return `
+          <section style="padding:20px 0;border-top:1px solid #E2E8F0;">
+            <h2 style="margin:0 0 12px 0;font-size:16px;color:#1E3A8A;">${escapePrintableHtml(documentItem.nom || 'Lettre finale')}</h2>
+            ${data.subject ? `<div style="display:inline-block;padding:7px 10px;border-radius:999px;background:#EFF6FF;color:#1D4ED8;font-size:12px;font-weight:700;margin-bottom:14px;">${escapePrintableHtml(String(data.subject))}</div>` : ''}
+            ${data.salutation ? `<p style="margin:0 0 10px 0;color:#111827;line-height:1.7;font-size:13px;">${escapePrintableHtml(String(data.salutation))}</p>` : ''}
+            ${paragraphs.map((paragraph: string) => `<p style="margin:0 0 10px 0;color:#334155;line-height:1.7;font-size:13px;">${escapePrintableHtml(String(paragraph))}</p>`).join('')}
+            ${data.closing ? `<p style="margin:14px 0 0 0;color:#111827;line-height:1.7;font-size:13px;">${escapePrintableHtml(String(data.closing))}</p>` : ''}
+            ${data.signature ? `<p style="margin:14px 0 0 0;color:#111827;line-height:1.7;font-size:13px;font-weight:700;">${escapePrintableHtml(String(data.signature))}</p>` : ''}
+          </section>
+        `
+      }
+
+      return `
+        <section style="padding:20px 0;border-top:1px solid #E2E8F0;">
+          <h2 style="margin:0 0 12px 0;font-size:16px;color:#1E3A8A;">${escapePrintableHtml(documentItem.nom || 'Document final')}</h2>
+          ${renderPrintableParagraphs(String(documentItem.content_text || ''))}
+        </section>
+      `
+    })
+    .join('')
+
+  return `<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${escapePrintableHtml(candidate.fullName)} - Dossier final</title>
+    <style>
+      @page { size: A4; margin: 12mm; }
+      * { box-sizing: border-box; }
+      body { margin:0; background:#E2E8F0; font-family: Arial, Helvetica, sans-serif; color:#0F172A; }
+      .page { width:210mm; min-height:297mm; margin:0 auto; background:white; }
+      .header { padding:24px 28px 20px; background:linear-gradient(135deg, #0F172A 0%, #1E3A8A 100%); color:white; }
+      .title { margin:0; font-size:26px; font-weight:800; }
+      .meta { margin-top:8px; color:#DBEAFE; font-size:13px; line-height:1.6; }
+      .content { padding:22px 28px 28px; }
+      @media print { body { background:white; } .page { width:auto; min-height:auto; margin:0; } }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <header class="header">
+        <h1 class="title">${escapePrintableHtml(candidate.fullName)}</h1>
+        <div class="meta">
+          ${escapePrintableHtml(candidate.targetJob || candidate.dossier.profession || 'Profil candidat')}<br />
+          ${escapePrintableHtml([candidate.email, candidate.whatsapp, candidate.preferredRegionItaly].filter(Boolean).join(' · '))}
+        </div>
+      </header>
+      <main class="content">
+        <div style="font-size:12px;color:#64748B;margin-bottom:14px;">Pack candidature final exporte depuis ItalianiPro</div>
+        ${sections}
+      </main>
+    </div>
+  </body>
+</html>`
+}
+
 export default function CandidateDetailPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
@@ -739,6 +837,20 @@ export default function CandidateDetailPage() {
     URL.revokeObjectURL(url)
   }
 
+  const downloadDocumentContent = (documentItem: CandidateDocument) => {
+    if (!candidate || !documentItem.content_text) {
+      toast.error('Aucun texte exportable pour ce document')
+      return
+    }
+    const blob = new Blob([documentItem.content_text], { type:'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = buildDocumentDownloadName(candidate, documentItem)
+    link.click()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1200)
+  }
+
   const downloadPrintableHtmlFallback = (html: string, filename: string) => {
     const blob = new Blob([html], { type:'text/html;charset=utf-8' })
     const url = URL.createObjectURL(blob)
@@ -847,6 +959,22 @@ export default function CandidateDetailPage() {
       return
     }
 
+    openPrintableHtmlPreview(html)
+  }
+
+  const exportApplicationBundle = (printImmediately = true) => {
+    if (!candidate) return
+    const finalDocuments = candidate.documents.filter((document) => document.final_version && (document.content_text || document.render_payload))
+    if (finalDocuments.length === 0) {
+      toast.error('Aucun document final a exporter pour le moment')
+      return
+    }
+
+    const html = buildApplicationBundleHtml(candidate, finalDocuments)
+    if (printImmediately) {
+      printHtmlDocument(html, `${candidate.code}_DOSSIER_FINAL.html`)
+      return
+    }
     openPrintableHtmlPreview(html)
   }
 
@@ -1140,6 +1268,50 @@ export default function CandidateDetailPage() {
 
       {tab === 'documents' && (
         <div style={{ display:'flex', flexDirection:'column', gap:'14px' }}>
+          <SectionCard
+            title="Documents finaux du dossier"
+            action={candidate.documents.some((document) => document.final_version && (document.content_text || document.render_payload)) ? (
+              <button onClick={() => exportApplicationBundle(true)} className="btn btn-primary btn-sm">
+                <Download size={14} /> Exporter dossier final
+              </button>
+            ) : undefined}
+          >
+            {candidate.documents.filter((document) => document.final_version).length === 0 ? (
+              <div style={{ fontSize:'13px', color:'#6B7280' }}>
+                Aucun document final publie pour le moment. Generez le CV ou la lettre depuis l onglet IA pour les archiver automatiquement ici.
+              </div>
+            ) : (
+              <div style={{ display:'flex', flexDirection:'column', gap:'8px' }}>
+                {candidate.documents
+                  .filter((document) => document.final_version)
+                  .map((document) => (
+                    <div key={document.id} style={{ display:'flex', justifyContent:'space-between', gap:'10px', alignItems:'center', padding:'10px 12px', border:'1px solid #E5E7EB', borderRadius:'12px', background:'#F9FAFB', flexWrap:'wrap' }}>
+                      <div>
+                        <div style={{ fontSize:'13px', fontWeight:'800', color:'#111827' }}>{document.nom || 'Document final'}</div>
+                        <div style={{ fontSize:'12px', color:'#6B7280', marginTop:'4px' }}>
+                          {document.doc_type || document.type_doc || 'document'} · {document.source_language || 'langue non precisee'}
+                        </div>
+                      </div>
+                      <div style={{ display:'flex', gap:'8px', flexWrap:'wrap' }}>
+                        <button onClick={() => setSelectedDocumentId(document.id)} className="btn btn-secondary btn-sm">
+                          <Eye size={14} /> Apercu
+                        </button>
+                        {document.file_url ? (
+                          <a href={document.file_url} download={buildDocumentDownloadName(candidate, document)} className="btn btn-secondary btn-sm">
+                            <Download size={14} /> Export nomme
+                          </a>
+                        ) : document.content_text ? (
+                          <button onClick={() => downloadDocumentContent(document)} className="btn btn-secondary btn-sm">
+                            <Download size={14} /> Export nomme
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            )}
+          </SectionCard>
+
           <SectionCard title={`Documents (${candidate.documents.length})`}>
             {candidate.documents.length === 0 ? (
               <div style={{ fontSize:'13px', color:'#6B7280' }}>Aucun document recu pour ce candidat.</div>
@@ -1167,11 +1339,15 @@ export default function CandidateDetailPage() {
                           <button onClick={() => loadDocumentIntoAi(document)} className="btn btn-secondary btn-sm">
                           <Brain size={14} /> Adapter avec IA
                         </button>
-                        {document.file_url && (
+                        {document.file_url ? (
                           <a href={document.file_url} download={buildDocumentDownloadName(candidate, document)} className="btn btn-secondary btn-sm">
                             <Download size={14} /> Export nomme
                           </a>
-                        )}
+                        ) : document.content_text ? (
+                          <button onClick={() => downloadDocumentContent(document)} className="btn btn-secondary btn-sm">
+                            <Download size={14} /> Export nomme
+                          </button>
+                        ) : null}
                       </div>
                     </div>
 
@@ -1239,7 +1415,11 @@ export default function CandidateDetailPage() {
                   {selectedDocument.translated_language ? ` · traduction ${selectedDocument.translated_language}` : ''}
                 </div>
 
-                {selectedDocument.content_text ? (
+                {selectedDocument.render_payload?.type === 'cv' && selectedDocument.render_payload.data ? (
+                  <CvProfessionalPreview data={selectedDocument.render_payload.data as any} />
+                ) : selectedDocument.render_payload?.type === 'cover_letter' && selectedDocument.render_payload.data ? (
+                  <LetterProfessionalPreview data={selectedDocument.render_payload.data as any} />
+                ) : selectedDocument.content_text ? (
                   <pre style={{ margin:0, background:'#F9FAFB', border:'1px solid #E5E7EB', borderRadius:'12px', padding:'14px', whiteSpace:'pre-wrap', wordBreak:'break-word', fontSize:'12px', lineHeight:'1.7', maxHeight:'520px', overflowY:'auto' }}>
                     {selectedDocument.content_text}
                   </pre>
