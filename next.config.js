@@ -5,6 +5,7 @@ const nextConfig = {
       'firebase-admin',
       '@google-cloud/firestore',
       '@google-cloud/storage',
+      '@opentelemetry/api',
       '@opentelemetry/sdk-trace-node',
     ],
   },
